@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: zora
+      POSTGRES_PASSWORD: zora
+      POSTGRES_DB: zora
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+  backend:
+    build: ./backend
+    depends_on:
+      - db
+      - redis
+    environment:
+      NODE_ENV: production
+      SERVER_PORT: 3001
+      DATABASE_URL: postgresql://zora:zora@db:5432/zora?schema=public
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: zora
+      DATABASE_USER: zora
+      DATABASE_PASSWORD: zora
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: change-me
+      ADMIN_EMAIL: admin@local
+      ADMIN_PASSWORD: admin123
+      CURRENCY: COP
+      BACKUP_DIR: /app/backups
+    ports:
+      - "3001:3001"
+    volumes:
+      - uploads_data:/app/uploads
+      - backups_data:/app/backups
+      - /home:/host/home
+      - /media:/host/media
+      - /mnt:/host/mnt
+      - /run/media:/host/run/media
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_BASE=http://localhost:3001/api
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+  db_backup:
+    image: prodrigestivill/postgres-backup-local:16
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=zora
+      - POSTGRES_USER=zora
+      - POSTGRES_PASSWORD=zora
+      - SCHEDULE=0 3 * * *
+      - BACKUP_DIR=/backups
+      - BACKUP_KEEP_DAYS=7
+      - BACKUP_KEEP_WEEKS=4
+      - BACKUP_KEEP_MONTHS=6
+      - TZ=America/Bogota
+    depends_on:
+      - db
+    volumes:
+      - db_backups:/backups
+
+volumes:
+  db_data:
+  db_backups:
+  uploads_data:
+  backups_data:
+
+

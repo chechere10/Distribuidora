@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes data (if any local)
+postgres_data/
+redis_data/
+
+# Uploads (optional - remove if you want to track uploads)
+# backend/uploads/
+
+# Prisma
+backend/prisma/migrations/
+
+# Temp files
+*.tmp
+*.temp
