@@ -173,6 +173,7 @@ export default function Inventory() {
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [deleteCategoryDialog, setDeleteCategoryDialog] = useState<{ open: boolean; id: string; name: string; productCount: number } | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
     message: '',
@@ -468,9 +469,15 @@ export default function Inventory() {
 
   // ============ RENDER ============
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ 
+      height: 'calc(100vh - 32px)', 
+      display: 'flex', 
+      flexDirection: 'column',
+      overflow: 'hidden',
+      p: 2
+    }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, flexShrink: 0 }}>
         <Box>
           <Typography variant="h4" fontWeight="bold" color="primary">
             Inventario
@@ -489,7 +496,7 @@ export default function Inventory() {
       </Box>
 
       {/* Stats Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
+      <Grid container spacing={2} sx={{ mb: 2, flexShrink: 0 }}>
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ bgcolor: alpha(theme.palette.primary.main, 0.1) }}>
             <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -545,7 +552,7 @@ export default function Inventory() {
       </Grid>
 
       {/* Filters */}
-      <Paper sx={{ p: 2, mb: 3 }}>
+      <Paper sx={{ p: 1.5, mb: 2, flexShrink: 0 }}>
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} md={5}>
             <TextField
@@ -579,32 +586,32 @@ export default function Inventory() {
             </FormControl>
           </Grid>
           <Grid item xs={12} md={4} sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-            <IconButton onClick={loadProducts}>
+            <IconButton onClick={loadProducts} size="small">
               <Refresh />
             </IconButton>
-            <Button variant="outlined" startIcon={<Download />} onClick={handleExportExcel}>
+            <Button variant="outlined" size="small" startIcon={<Download />} onClick={handleExportExcel}>
               Exportar
             </Button>
-            <Button variant="outlined" startIcon={<Upload />} onClick={handleOpenImportDialog}>
+            <Button variant="outlined" size="small" startIcon={<Upload />} onClick={handleOpenImportDialog}>
               Importar
             </Button>
           </Grid>
         </Grid>
       </Paper>
 
-      {/* Products Table */}
-      <TableContainer component={Paper}>
-        <Table>
+      {/* Products Table - Con scroll solo aquí */}
+      <TableContainer component={Paper} sx={{ flexGrow: 1, overflow: 'auto' }}>
+        <Table stickyHeader>
           <TableHead>
-            <TableRow sx={{ bgcolor: 'grey.100' }}>
-              <TableCell sx={{ fontWeight: 'bold' }}>Producto</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Categoría</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Código</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 'bold' }}>Precio Base</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 'bold' }}>Costo</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Stock</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Presentaciones</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 'bold' }}>Acciones</TableCell>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Producto</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Categoría</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Código</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Precio Base</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Costo</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Stock</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Presentaciones</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -746,9 +753,64 @@ export default function Inventory() {
           setEditingCategory(cat);
           setCategoryDialogOpen(true);
         }}
+        onDeleteCategory={(categoryId, categoryName, productCount) => {
+          setDeleteCategoryDialog({ open: true, id: categoryId, name: categoryName, productCount });
+        }}
         scannedBarcode={scannedBarcode}
         onClearScannedBarcode={() => setScannedBarcode(null)}
       />
+
+      {/* Delete Category Confirmation Dialog */}
+      <Dialog 
+        open={deleteCategoryDialog?.open || false} 
+        onClose={() => setDeleteCategoryDialog(null)}
+      >
+        <DialogTitle sx={{ color: 'error.main', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Delete /> Eliminar Categoría
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            ¿Estás seguro de eliminar la categoría <strong>"{deleteCategoryDialog?.name}"</strong>?
+          </Typography>
+          {deleteCategoryDialog?.productCount && deleteCategoryDialog.productCount > 0 ? (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              <strong>¡Atención!</strong> Esta categoría tiene <strong>{deleteCategoryDialog.productCount} producto(s)</strong> asociado(s). 
+              Al eliminar la categoría, también se eliminarán todos sus productos.
+            </Alert>
+          ) : (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Esta categoría no tiene productos asociados.
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteCategoryDialog(null)}>Cancelar</Button>
+          <Button 
+            variant="contained" 
+            color="error"
+            onClick={async () => {
+              if (!deleteCategoryDialog) return;
+              try {
+                await api.delete(`/categories/${deleteCategoryDialog.id}`);
+                const msg = deleteCategoryDialog.productCount > 0 
+                  ? `Categoría y ${deleteCategoryDialog.productCount} producto(s) eliminados` 
+                  : 'Categoría eliminada correctamente';
+                setSnackbar({ open: true, message: msg, severity: 'success' });
+                loadCategories();
+                loadProducts();
+                setDeleteCategoryDialog(null);
+              } catch (error: any) {
+                const message = error?.response?.data?.message || 'Error al eliminar categoría';
+                setSnackbar({ open: true, message, severity: 'error' });
+              }
+            }}
+          >
+            {deleteCategoryDialog?.productCount && deleteCategoryDialog.productCount > 0 
+              ? `Eliminar categoría y ${deleteCategoryDialog.productCount} producto(s)` 
+              : 'Eliminar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Category Dialog */}
       <CategoryDialog
@@ -758,6 +820,7 @@ export default function Inventory() {
           setEditingCategory(null);
         }}
         category={editingCategory}
+        categories={categories}
         onSave={async (data) => {
           try {
             if (editingCategory) {
@@ -772,6 +835,16 @@ export default function Inventory() {
             setEditingCategory(null);
           } catch (error) {
             setSnackbar({ open: true, message: 'Error al guardar categoría', severity: 'error' });
+          }
+        }}
+        onDelete={async (categoryId) => {
+          try {
+            await api.delete(`/categories/${categoryId}`);
+            setSnackbar({ open: true, message: 'Categoría eliminada', severity: 'success' });
+            loadCategories();
+          } catch (error: any) {
+            const message = error?.response?.data?.message || 'Error al eliminar categoría';
+            setSnackbar({ open: true, message, severity: 'error' });
           }
         }}
       />
@@ -922,6 +995,7 @@ interface ProductDialogProps {
   priceLists: PriceList[];
   onNewCategory: () => void;
   onEditCategory: (cat: Category) => void;
+  onDeleteCategory: (categoryId: string, categoryName: string, productCount: number) => void;
   scannedBarcode?: string | null;
   onClearScannedBarcode?: () => void;
 }
@@ -942,7 +1016,7 @@ const DEFAULT_UNITS = [
   { value: 'bulto', label: 'Bulto' },
 ];
 
-function ProductDialog({ open, onClose, onSave, product, categories, priceLists, onNewCategory, onEditCategory, scannedBarcode, onClearScannedBarcode }: ProductDialogProps) {
+function ProductDialog({ open, onClose, onSave, product, categories, priceLists, onNewCategory, onEditCategory, onDeleteCategory, scannedBarcode, onClearScannedBarcode }: ProductDialogProps) {
   const [formData, setFormData] = useState({
     name: '',
     barcode: '',
@@ -953,7 +1027,7 @@ function ProductDialog({ open, onClose, onSave, product, categories, priceLists,
     cost: '',
     imageUrl: '',
     baseUnit: 'unidad',
-    baseStock: '0',
+    baseStock: '',
     minStock: 0,
   });
   const [prices, setPrices] = useState<{ priceListId: string; price: string }[]>([]);
@@ -1092,7 +1166,7 @@ function ProductDialog({ open, onClose, onSave, product, categories, priceLists,
         cost: '',
         imageUrl: '',
         baseUnit: 'unidad',
-        baseStock: '0',
+        baseStock: '',
         minStock: 0,
       });
       // Inicializar precios con listas existentes
@@ -1278,16 +1352,29 @@ function ProductDialog({ open, onClose, onSave, product, categories, priceLists,
                         <MenuItem key={cat.id} value={cat.id}>
                           <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
                             <span>{cat.name}</span>
-                            <IconButton
-                              size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onEditCategory(cat);
-                              }}
-                              sx={{ ml: 1 }}
-                            >
-                              <Edit fontSize="small" />
-                            </IconButton>
+                            <Box>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onEditCategory(cat);
+                                }}
+                                title="Editar categoría"
+                              >
+                                <Edit fontSize="small" />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteCategory(cat.id, cat.name, cat._count?.products || 0);
+                                }}
+                                title="Eliminar categoría"
+                              >
+                                <Delete fontSize="small" />
+                              </IconButton>
+                            </Box>
                           </Box>
                         </MenuItem>
                       ))}
@@ -1524,9 +1611,8 @@ function ProductDialog({ open, onClose, onSave, product, categories, priceLists,
                 <TextField
                   fullWidth
                   label="Cantidad"
-                  type="number"
-                  value={formData.baseStock}
-                  onChange={(e) => handleChange('baseStock', e.target.value)}
+                  value={formatNumber(formData.baseStock)}
+                  onChange={(e) => handleChange('baseStock', parseNumber(e.target.value))}
                 />
               </Grid>
               <Grid item xs={12} sm={2.4}>
@@ -1573,29 +1659,14 @@ function ProductDialog({ open, onClose, onSave, product, categories, priceLists,
                   }}
                 />
               </Grid>
-              <Grid item xs={12} sm={2}>
-                {priceLists.filter(pl => !pl.isDefault).map((pl) => (
-                  <TextField
-                    key={pl.id}
-                    fullWidth
-                    label={`Precio ${pl.name}`}
-                    value={formatNumber(prices.find(p => p.priceListId === pl.id)?.price || '')}
-                    onChange={(e) => handlePriceChange(pl.id, parseNumber(e.target.value))}
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                    }}
-                  />
-                ))}
-              </Grid>
             </Grid>
             {/* Stock Mínimo */}
             <TextField
               sx={{ mt: 2 }}
               size="small"
               label="Stock Mínimo (alerta)"
-              type="number"
-              value={formData.minStock}
-              onChange={(e) => handleChange('minStock', Number(e.target.value))}
+              value={formData.minStock === 0 ? '' : formatNumber(String(formData.minStock))}
+              onChange={(e) => handleChange('minStock', parseNumber(e.target.value) ? Number(parseNumber(e.target.value)) : 0)}
               helperText="Recibirás alerta cuando el stock baje de este valor"
             />
           </Grid>
@@ -1632,9 +1703,8 @@ function ProductDialog({ open, onClose, onSave, product, categories, priceLists,
                 <TextField
                   size="small"
                   label="Cantidad"
-                  type="number"
-                  value={pres.quantity}
-                  onChange={(e) => updatePresentation(index, 'quantity', e.target.value)}
+                  value={formatNumber(pres.quantity)}
+                  onChange={(e) => updatePresentation(index, 'quantity', parseNumber(e.target.value))}
                   sx={{ flex: 1 }}
                 />
                 <TextField
@@ -1720,12 +1790,16 @@ interface CategoryDialogProps {
   open: boolean;
   onClose: () => void;
   onSave: (data: { name: string; color?: string }) => void;
+  onDelete?: (categoryId: string) => void;
   category?: Category | null;
+  categories?: Category[];
 }
 
-function CategoryDialog({ open, onClose, onSave, category }: CategoryDialogProps) {
+function CategoryDialog({ open, onClose, onSave, onDelete, category, categories = [] }: CategoryDialogProps) {
   const [name, setName] = useState('');
   const [color, setColor] = useState('#3B82F6');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
 
   const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
 
@@ -1746,41 +1820,152 @@ function CategoryDialog({ open, onClose, onSave, category }: CategoryDialogProps
     setColor('#3B82F6');
   };
 
+  const handleDeleteClick = (cat: Category) => {
+    setCategoryToDelete(cat);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (categoryToDelete && onDelete) {
+      onDelete(categoryToDelete.id);
+    }
+    setDeleteConfirmOpen(false);
+    setCategoryToDelete(null);
+  };
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{category ? 'Editar Categoría' : 'Nueva Categoría'}</DialogTitle>
-      <DialogContent>
-        <TextField
-          fullWidth
-          label="Nombre de la Categoría"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          sx={{ mt: 2, mb: 2 }}
-        />
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Color</Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          {colors.map((c) => (
-            <Box
-              key={c}
-              onClick={() => setColor(c)}
-              sx={{
-                width: 36,
-                height: 36,
-                bgcolor: c,
+    <>
+      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+        <DialogTitle>{category ? 'Editar Categoría' : 'Gestionar Categorías'}</DialogTitle>
+        <DialogContent>
+          {/* Lista de categorías existentes */}
+          {!category && categories.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+                Categorías existentes ({categories.length})
+              </Typography>
+              <Box sx={{ 
+                maxHeight: 200, 
+                overflowY: 'auto', 
+                border: '1px solid #e0e0e0', 
                 borderRadius: 1,
-                cursor: 'pointer',
-                border: color === c ? '3px solid black' : 'none',
-              }}
-            />
-          ))}
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancelar</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={!name}>
-          {category ? 'Guardar' : 'Crear'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+                bgcolor: '#fafafa'
+              }}>
+                {categories.map((cat) => (
+                  <Box 
+                    key={cat.id} 
+                    sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between',
+                      p: 1.5,
+                      borderBottom: '1px solid #e0e0e0',
+                      '&:last-child': { borderBottom: 'none' },
+                      '&:hover': { bgcolor: '#f0f0f0' }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Box 
+                        sx={{ 
+                          width: 20, 
+                          height: 20, 
+                          borderRadius: '50%', 
+                          bgcolor: cat.color || '#3B82F6' 
+                        }} 
+                      />
+                      <Typography variant="body2" fontWeight="medium">
+                        {cat.name}
+                      </Typography>
+                      {cat._count && (
+                        <Chip 
+                          label={`${cat._count.products} productos`} 
+                          size="small" 
+                          variant="outlined"
+                          sx={{ fontSize: '10px', height: 20 }}
+                        />
+                      )}
+                    </Box>
+                    <IconButton 
+                      size="small" 
+                      color="error" 
+                      onClick={() => handleDeleteClick(cat)}
+                      title="Eliminar categoría"
+                    >
+                      <Delete fontSize="small" />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          <Divider sx={{ my: 2 }} />
+          
+          <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+            {category ? 'Editar categoría' : 'Crear nueva categoría'}
+          </Typography>
+          
+          <TextField
+            fullWidth
+            label="Nombre de la Categoría"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            sx={{ mt: 1, mb: 2 }}
+          />
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Color</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            {colors.map((c) => (
+              <Box
+                key={c}
+                onClick={() => setColor(c)}
+                sx={{
+                  width: 36,
+                  height: 36,
+                  bgcolor: c,
+                  borderRadius: 1,
+                  cursor: 'pointer',
+                  border: color === c ? '3px solid black' : 'none',
+                }}
+              />
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose}>Cerrar</Button>
+          <Button variant="contained" onClick={handleSubmit} disabled={!name}>
+            {category ? 'Guardar' : 'Crear Categoría'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo de confirmación de eliminación */}
+      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
+        <DialogTitle sx={{ color: 'error.main' }}>
+          ⚠️ Confirmar Eliminación
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            ¿Estás seguro de eliminar la categoría <strong>"{categoryToDelete?.name}"</strong>?
+          </Typography>
+          {categoryToDelete?._count && categoryToDelete._count.products > 0 && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              Esta categoría tiene <strong>{categoryToDelete._count.products} productos</strong> asociados. 
+              Debes mover o eliminar los productos antes de eliminar la categoría.
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmOpen(false)}>Cancelar</Button>
+          <Button 
+            variant="contained" 
+            color="error" 
+            onClick={handleConfirmDelete}
+            disabled={categoryToDelete?._count && categoryToDelete._count.products > 0}
+          >
+            Eliminar
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 }

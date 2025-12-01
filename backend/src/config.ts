@@ -12,6 +12,8 @@ export const config = {
   currency: process.env.CURRENCY || 'COP',
   printerHost: process.env.PRINTER_HOST,
   printerPort: Number(process.env.PRINTER_PORT || 9100),
+  printerName: process.env.PRINTER_NAME || '', // Nombre impresora CUPS local (ej: "Impresora")
+  printerType: process.env.PRINTER_TYPE || 'escpos', // 'escpos' o 'text'
 } as const;
 
 

@@ -56,7 +56,8 @@ export async function productRoutes(app: FastifyInstance) {
         properties: {
           q: { type: 'string' },
           categoryId: { type: 'string' },
-          limit: { type: 'integer', minimum: 1, maximum: 200 },
+          lowStock: { type: 'boolean' },
+          limit: { type: 'integer', minimum: 1, maximum: 10000 },
           offset: { type: 'integer', minimum: 0 },
         },
       },
@@ -65,7 +66,8 @@ export async function productRoutes(app: FastifyInstance) {
     const qp = (request.query as any) ?? {};
     const q = qp.q as string | undefined;
     const categoryId = qp.categoryId as string | undefined;
-    const limit = Math.min(Math.max(Number(qp.limit ?? 50), 1), 200);
+    const lowStock = qp.lowStock === 'true' || qp.lowStock === true;
+    const limit = Math.min(Math.max(Number(qp.limit ?? 1000), 1), 10000);
     const offset = Math.max(Number(qp.offset ?? 0), 0);
     
     const whereConditions: any[] = [
@@ -102,7 +104,7 @@ export async function productRoutes(app: FastifyInstance) {
             orderBy: { sortOrder: 'asc' },
           },
         },
-        orderBy: { createdAt: 'desc' }, 
+        orderBy: lowStock ? { baseStock: 'asc' } : { createdAt: 'desc' }, 
         take: limit, 
         skip: offset 
       }),
@@ -112,7 +114,7 @@ export async function productRoutes(app: FastifyInstance) {
     reply.header('X-Offset', String(offset));
     
     // Convert Decimal fields to strings and add computed stock display
-    const serializedRows = rows.map(row => {
+    let serializedRows = rows.map(row => {
       const stockDisplay = computeStockDisplay(
         Number(row.baseStock),
         row.baseUnit,
@@ -129,6 +131,7 @@ export async function productRoutes(app: FastifyInstance) {
         priceEmpleados: row.priceEmpleados?.toString() || null,
         cost: row.cost.toString(),
         baseStock: row.baseStock.toString(),
+        stock: Number(row.baseStock), // Para compatibilidad con Dashboard
         stockDisplay, // Ej: "9 Bultos y 15 Kilos"
         prices: row.prices.map(p => ({
           ...p,
@@ -143,6 +146,11 @@ export async function productRoutes(app: FastifyInstance) {
         })),
       };
     });
+    
+    // Filtrar productos con stock bajo (stock <= minStock)
+    if (lowStock) {
+      serializedRows = serializedRows.filter(p => Number(p.baseStock) <= p.minStock && p.minStock > 0);
+    }
     
     return serializedRows;
   });

@@ -31,6 +31,8 @@ services:
       ADMIN_PASSWORD: admin123
       CURRENCY: COP
       BACKUP_DIR: /app/backups
+      PRINTER_NAME: ${PRINTER_NAME:-Impresora}
+      TZ: America/Bogota
     ports:
       - "3001:3001"
     volumes:
@@ -40,6 +42,8 @@ services:
       - /media:/host/media
       - /mnt:/host/mnt
       - /run/media:/host/run/media
+      - /var/run/cups:/var/run/cups
+      - /etc/cups:/etc/cups:ro
 
   frontend:
     build:

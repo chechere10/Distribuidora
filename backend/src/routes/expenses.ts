@@ -27,6 +27,16 @@ const DEFAULT_CATEGORIES = {
     { id: 'impuestos', name: 'Impuestos', icon: 'account_balance', color: '#EC4899' },
     { id: 'otros', name: 'Otros Gastos', icon: 'more_horiz', color: '#94A3B8' },
   ],
+  empleados: [
+    { id: 'adelanto', name: 'Adelanto de Sueldo', icon: 'payments', color: '#3B82F6' },
+    { id: 'prestamo', name: 'Préstamo Personal', icon: 'account_balance_wallet', color: '#10B981' },
+    { id: 'bonificacion', name: 'Bonificación', icon: 'card_giftcard', color: '#F59E0B' },
+    { id: 'uniformes', name: 'Uniformes/Dotación', icon: 'checkroom', color: '#8B5CF6' },
+    { id: 'transporte', name: 'Auxilio Transporte', icon: 'directions_bus', color: '#14B8A6' },
+    { id: 'alimentacion', name: 'Alimentación', icon: 'restaurant', color: '#EC4899' },
+    { id: 'salud', name: 'Salud/Medicamentos', icon: 'local_hospital', color: '#EF4444' },
+    { id: 'otros', name: 'Otros', icon: 'more_horiz', color: '#94A3B8' },
+  ],
 };
 
 export async function expenseRoutes(app: FastifyInstance) {
@@ -49,7 +59,7 @@ export async function expenseRoutes(app: FastifyInstance) {
     }
 
     // Agrupar por negocio
-    const result: Record<string, any[]> = { distribuidora: [], sanAlas: [] };
+    const result: Record<string, any[]> = { distribuidora: [], sanAlas: [], empleados: [] };
     for (const cat of dbCategories) {
       const business = cat.business as keyof typeof result;
       if (result[business]) {
@@ -65,6 +75,7 @@ export async function expenseRoutes(app: FastifyInstance) {
     // Si algún negocio no tiene categorías, usar las por defecto
     if (result.distribuidora.length === 0) result.distribuidora = DEFAULT_CATEGORIES.distribuidora;
     if (result.sanAlas.length === 0) result.sanAlas = DEFAULT_CATEGORIES.sanAlas;
+    if (result.empleados.length === 0) result.empleados = DEFAULT_CATEGORIES.empleados;
 
     return result;
   });
@@ -74,7 +85,7 @@ export async function expenseRoutes(app: FastifyInstance) {
     name: z.string().min(1),
     icon: z.string().optional(),
     color: z.string().default('#3B82F6'),
-    business: z.enum(['distribuidora', 'sanAlas']),
+    business: z.enum(['distribuidora', 'sanAlas', 'empleados']),
   });
 
   app.post('/expenses/categories', {
@@ -159,7 +170,7 @@ export async function expenseRoutes(app: FastifyInstance) {
   // ============ CREAR GASTO ============
   const createSchema = z.object({
     date: z.string().optional(),
-    business: z.enum(['distribuidora', 'sanAlas']),
+    business: z.enum(['distribuidora', 'sanAlas', 'empleados']),
     category: z.string().min(1),
     subcategory: z.string().optional(),
     supplierName: z.string().optional(),
@@ -184,6 +195,30 @@ export async function expenseRoutes(app: FastifyInstance) {
     const data = parsed.data;
     const userId = (request as any).user?.sub;
     
+    // Generar número de factura automático si no se proporciona
+    let invoiceNumber = data.invoiceNumber;
+    if (!invoiceNumber) {
+      const lastExpense = await app.prisma.expense.findFirst({
+        where: { business: data.business },
+        orderBy: { createdAt: 'desc' },
+        select: { invoiceNumber: true },
+      });
+      
+      // Extraer el número del último y sumar 1
+      let nextNumber = 1;
+      if (lastExpense?.invoiceNumber) {
+        const match = lastExpense.invoiceNumber.match(/(\d+)$/);
+        if (match) {
+          nextNumber = parseInt(match[1], 10) + 1;
+        }
+      }
+      
+      // Prefijo según negocio
+      const prefix = data.business === 'distribuidora' ? 'GD' : 
+                     data.business === 'sanAlas' ? 'GS' : 'GE';
+      invoiceNumber = `${prefix}-${nextNumber.toString().padStart(5, '0')}`;
+    }
+    
     const created = await app.prisma.expense.create({
       data: {
         date: data.date ? new Date(data.date) : new Date(),
@@ -194,7 +229,7 @@ export async function expenseRoutes(app: FastifyInstance) {
         description: data.description,
         amount: data.amount as any,
         paymentMethod: data.paymentMethod,
-        invoiceNumber: data.invoiceNumber,
+        invoiceNumber: invoiceNumber,
         isRecurring: data.isRecurring ?? false,
         notes: data.notes,
         userId: userId || null,

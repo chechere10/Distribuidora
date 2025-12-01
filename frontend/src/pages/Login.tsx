@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { api } from '../api';
+import { useState, useEffect, useRef } from 'react';
+import { api, removeToken } from '../api';
 import { 
   Button, 
   TextField, 
@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { Person, Lock, Visibility, VisibilityOff, Store } from '@mui/icons-material';
+import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -22,6 +23,19 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { setUser } = useAuth();
+  const cleanedRef = useRef(false);
+
+  // Al entrar a la página de login, limpiar completamente la sesión anterior
+  useEffect(() => {
+    if (!cleanedRef.current) {
+      cleanedRef.current = true;
+      // Limpiar todo el estado de autenticación
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setUser(null);
+    }
+  }, [setUser]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,10 +48,12 @@ export default function Login() {
     setError(null);
     
     try {
-      const res = await api.post<{ token: string; user: { username: string; name: string; role: string } }>('/auth/login', { username, password });
+      const res = await api.post<{ token: string; user: { id: string; username: string; name: string; role: 'admin' | 'operario' } }>('/auth/login', { username, password });
       localStorage.setItem('token', res.token);
       localStorage.setItem('user', JSON.stringify(res.user));
-      navigate('/pos');
+      setUser(res.user);
+      // Pequeño delay para asegurar que el estado se propague
+      setTimeout(() => navigate('/pos'), 50);
     } catch (err: any) {
       setError(err.message || 'Usuario o contraseña incorrectos');
     } finally {

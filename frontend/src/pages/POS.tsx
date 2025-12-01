@@ -27,9 +27,10 @@ import {
   Alert,
   Snackbar,
   Tooltip,
-  Divider
+  Divider,
 } from '@mui/material';
 import ReceiptDialog from '../components/ReceiptDialog';
+import CashSession from '../components/CashSession';
 
 // Utility functions for number formatting
 const formatNumber = (value: string | number): string => {
@@ -118,20 +119,12 @@ export default function POS() {
   // Stock alert state
   const [stockAlert, setStockAlert] = useState<{ show: boolean; message: string; severity: 'error' | 'warning' | 'info' }>({ show: false, message: '', severity: 'error' });
   
-  // Cash closure state
-  const [showCashCloseDialog, setShowCashCloseDialog] = useState(false);
-  const [cashCloseEmail, setCashCloseEmail] = useState('');
-  const [cashClosePassword, setCashClosePassword] = useState('');
-  const [cashCloseBilletes, setCashCloseBilletes] = useState('');
-  const [cashCloseMonedas, setCashCloseMonedas] = useState('');
-  const [cashCloseNotes, setCashCloseNotes] = useState('');
-  const [cashCloseError, setCashCloseError] = useState('');
-  const [cashCloseSummary, setCashCloseSummary] = useState<any>(null);
-  const [showCashCloseSummary, setShowCashCloseSummary] = useState(false);
-  
   // Barcode scanner state
   const [scannerMessage, setScannerMessage] = useState<string | null>(null);
   const [showScannerTest, setShowScannerTest] = useState(false);
+  
+  // Panel de productos colapsable
+  const [showProductsPanel, setShowProductsPanel] = useState(false);
   
   // Ref para scroll automático del carrito
   const cartScrollRef = useRef<HTMLDivElement>(null);
@@ -514,6 +507,13 @@ export default function POS() {
     
     setIsProcessing(true);
     try {
+      // Abrir caja registradora al confirmar venta
+      try {
+        await api.post('/sales/open-drawer');
+      } catch (e) {
+        console.warn('No se pudo abrir la caja registradora:', e);
+      }
+      
       // Guardar datos del carrito antes de limpiar
       const saleItems = cartItems.map(item => ({
         productId: item.product.id,
@@ -623,79 +623,58 @@ export default function POS() {
     }
   };
 
-  // Función para cerrar caja
-  const handleCashClose = async () => {
-    const totalBilletes = parseNumber(cashCloseBilletes);
-    const totalMonedas = parseNumber(cashCloseMonedas);
-    const totalEfectivo = totalBilletes + totalMonedas;
-    
-    if (!cashCloseEmail || !cashClosePassword || totalEfectivo === 0) {
-      setCashCloseError('Complete todos los campos requeridos (email, contraseña y conteo de efectivo)');
-      return;
-    }
-    
-    setIsProcessing(true);
-    setCashCloseError('');
-    
-    try {
-      const result = await api.post('/cash/close', {
-        warehouseId,
-        closingAmount: String(totalEfectivo),
-        billetes: totalBilletes,
-        monedas: totalMonedas,
-        userEmail: cashCloseEmail,
-        password: cashClosePassword,
-        notes: cashCloseNotes || undefined
-      });
-      
-      setCashCloseSummary({
-        ...(result as object),
-        billetes: totalBilletes,
-        monedas: totalMonedas
-      });
-      setShowCashCloseDialog(false);
-      setShowCashCloseSummary(true);
-      
-      // Limpiar formulario
-      setCashCloseEmail('');
-      setCashClosePassword('');
-      setCashCloseBilletes('');
-      setCashCloseMonedas('');
-      setCashCloseNotes('');
-    } catch (error: any) {
-      console.error('Error closing cash:', error);
-      setCashCloseError(error.response?.data?.message || 'Error al cerrar caja');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+
 
   return (
-    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={6}>
-            <Typography variant="h5" sx={{ fontWeight: 'bold', textAlign: 'center' }}>
+    <Box sx={{ 
+      height: 'calc(100vh - 32px)', 
+      display: 'flex', 
+      flexDirection: 'column',
+      overflow: 'hidden'
+    }}>
+      {/* Header - Compacto */}
+      <Box sx={{ py: 1, px: 2, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
               Punto de Venta
             </Typography>
+            {/* Botón para mostrar/ocultar panel de productos */}
+            <Tooltip title={showProductsPanel ? "Ocultar catálogo (modo escáner)" : "Mostrar catálogo manual"}>
+              <IconButton
+                onClick={() => setShowProductsPanel(!showProductsPanel)}
+                sx={{
+                  backgroundColor: showProductsPanel ? alpha(theme.palette.primary.main, 0.15) : 'grey.100',
+                  border: '2px solid',
+                  borderColor: showProductsPanel ? 'primary.main' : 'grey.300',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    backgroundColor: showProductsPanel ? alpha(theme.palette.primary.main, 0.25) : 'grey.200',
+                    transform: 'scale(1.05)'
+                  }
+                }}
+              >
+                {showProductsPanel ? (
+                  <span style={{ fontSize: '1.2rem' }}>📦</span>
+                ) : (
+                  <span style={{ fontSize: '1.2rem' }}>📷</span>
+                )}
+              </IconButton>
+            </Tooltip>
             {/* Scanner message indicator */}
             {scannerMessage && (
               <Typography 
                 variant="body2" 
                 sx={{ 
-                  textAlign: 'center', 
-                  mt: 0.5,
                   color: scannerMessage.startsWith('✅') ? 'success.main' : 'error.main',
                   fontWeight: 600,
-                  animation: 'fadeIn 0.3s ease-in'
                 }}
               >
                 {scannerMessage}
               </Typography>
             )}
-          </Grid>
-          <Grid item xs={12} md={6} sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, alignItems: 'center' }}>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
             {/* Scanner Status Indicator */}
             <Tooltip title={showScannerTest ? "Cerrar prueba de escáner" : "Probar escáner"}>
               <Chip
@@ -704,6 +683,7 @@ export default function POS() {
                 color={scannerActive ? 'warning' : (lastScan ? 'success' : 'default')}
                 variant={scannerActive ? 'filled' : 'outlined'}
                 onClick={() => setShowScannerTest(!showScannerTest)}
+                size="small"
                 sx={{ 
                   fontWeight: 'bold',
                   animation: scannerActive ? 'pulse 0.5s infinite' : 'none',
@@ -715,29 +695,33 @@ export default function POS() {
                 }}
               />
             </Tooltip>
-            <Button
-              variant="outlined"
-              color="error"
-              size="small"
-              onClick={() => setShowCashCloseDialog(true)}
-              sx={{ fontWeight: 'bold' }}
-            >
-              🔒 CERRAR CAJA
-            </Button>
+            <CashSession warehouseId={warehouseId} />
             <Chip 
               label={`${cartItems.length} productos`} 
               color="primary" 
-              variant="outlined" 
+              variant="outlined"
+              size="small"
             />
-          </Grid>
-        </Grid>
+          </Box>
+        </Box>
       </Box>
 
-      <Grid container sx={{ flexGrow: 1, height: 'calc(100vh - 80px)' }}>
-        {/* Left Panel - Categories and Products */}
-        <Grid item xs={12} md={5} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Grid container sx={{ flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
+        {/* Left Panel - Categories and Products (Colapsable) */}
+        <Grid 
+          item 
+          xs={12} 
+          md={showProductsPanel ? 5 : 0} 
+          sx={{ 
+            height: '100%', 
+            display: showProductsPanel ? 'flex' : 'none', 
+            flexDirection: 'column', 
+            overflow: 'hidden',
+            transition: 'all 0.3s ease'
+          }}
+        >
           {/* Barcode Search + Categories Selector */}
-          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <Box sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
             {/* Barcode manual search */}
             <TextField
               fullWidth
@@ -752,9 +736,9 @@ export default function POS() {
                   }
                 }
               }}
-              sx={{ mb: 1.5 }}
+              sx={{ mb: 1 }}
               InputProps={{
-                sx: { bgcolor: 'grey.50' }
+                sx: { bgcolor: 'grey.50', py: 0 }
               }}
             />
             <FormControl fullWidth size="small">
@@ -775,7 +759,7 @@ export default function POS() {
           </Box>
 
           {/* Products Grid */}
-          <Box sx={{ flexGrow: 1, p: 2, overflow: 'auto' }}>
+          <Box sx={{ flexGrow: 1, p: 1.5, overflow: 'auto', minHeight: 0 }}>
             <Box 
               sx={{ 
                 display: 'grid',
@@ -864,21 +848,27 @@ export default function POS() {
                   {/* Nombre pequeño abajo */}
                   <Box sx={{ 
                     px: 0.5, 
-                    py: 0.3, 
+                    py: 0.5, 
                     textAlign: 'center', 
                     backgroundColor: isOutOfStock ? 'grey.200' : 'white',
                     borderTop: '1px solid',
-                    borderColor: 'grey.200'
+                    borderColor: 'grey.200',
+                    minHeight: 32,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}>
                     <Typography 
                       sx={{ 
                         fontWeight: 600,
-                        fontSize: '0.65rem',
-                        lineHeight: 1.2,
+                        fontSize: '0.6rem',
+                        lineHeight: 1.15,
                         overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
                         color: isOutOfStock ? 'text.disabled' : 'text.primary',
+                        wordBreak: 'break-word',
                       }}
                     >
                       {product.name}
@@ -891,102 +881,165 @@ export default function POS() {
         </Grid>
 
         {/* Right Panel - Cart */}
-        <Grid item xs={12} md={7} sx={{ height: '100%', borderLeft: 1, borderColor: 'divider' }}>
-          <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            {/* Cart Header */}
-            <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', backgroundColor: alpha(theme.palette.primary.main, 0.05) }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                  🛒 Carrito de Venta
-                </Typography>
-                {cartItems.length > 0 && (
-                  <Button variant="text" color="error" onClick={clearCart} size="small">
-                    Limpiar
-                  </Button>
-                )}
+        <Grid 
+          item 
+          xs={12} 
+          md={showProductsPanel ? 7 : 12} 
+          sx={{ 
+            height: '100%', 
+            borderLeft: showProductsPanel ? 1 : 0, 
+            borderColor: 'divider', 
+            overflow: 'hidden',
+            transition: 'all 0.3s ease'
+          }}
+        >
+          <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Cart Header - Ultra Compacto */}
+            <Box sx={{ py: 0.5, px: 1, borderBottom: 1, borderColor: 'divider', backgroundColor: alpha(theme.palette.primary.main, 0.05), flexShrink: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                    🛒 Carrito
+                  </Typography>
+                  <Chip 
+                    label={priceType === 'publico' ? '💰 Público' : priceType === 'sanAlas' ? '� San Alas' : '👷 Empleados'} 
+                    size="small" 
+                    color={priceType === 'publico' ? 'primary' : priceType === 'sanAlas' ? 'success' : 'secondary'}
+                    sx={{ height: 20, fontSize: '0.65rem' }}
+                  />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  {/* Barra de búsqueda compacta cuando el panel está oculto */}
+                  {!showProductsPanel && (
+                    <TextField
+                      size="small"
+                      placeholder="🔍 Código de barras..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const input = e.target as HTMLInputElement;
+                          if (input.value.trim()) {
+                            searchProductByBarcode(input.value.trim());
+                            input.value = '';
+                          }
+                        }
+                      }}
+                      sx={{ width: 180 }}
+                      InputProps={{
+                        sx: { bgcolor: 'white', py: 0, height: 28, fontSize: '0.75rem' }
+                      }}
+                    />
+                  )}
+                  {cartItems.length > 0 && (
+                    <Button variant="text" color="error" onClick={clearCart} size="small" sx={{ py: 0, minWidth: 'auto', fontSize: '0.7rem' }}>
+                      LIMPIAR
+                    </Button>
+                  )}
+                </Box>
               </Box>
-              <Chip 
-                label={priceType === 'publico' ? '💰 Precio Público' : priceType === 'sanAlas' ? '🏪 Precio San Alas' : '👷 Precio Empleados'} 
-                size="small" 
-                color={priceType === 'publico' ? 'primary' : priceType === 'sanAlas' ? 'success' : 'secondary'}
-                sx={{ mt: 1 }}
-              />
             </Box>
 
-            {/* Cart Items */}
-            <Box ref={cartScrollRef} sx={{ flexGrow: 1, overflow: 'auto', p: 1, maxHeight: 280 }}>
+            {/* Cart Items - Scrollable - Más espacio */}
+            <Box ref={cartScrollRef} sx={{ flexGrow: 1, overflow: 'auto', p: 1, minHeight: 0 }}>
               {cartItems.length === 0 ? (
                 <Box sx={{ p: 4, textAlign: 'center' }}>
                   <Typography variant="h4" sx={{ mb: 1 }}>🛒</Typography>
                   <Typography variant="h6" color="text.secondary">
                     Carrito Vacío
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Selecciona productos para comenzar
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    {showProductsPanel 
+                      ? 'Selecciona productos del catálogo o escanea un código de barras'
+                      : 'Escanea un código de barras para agregar productos'}
                   </Typography>
+                  {!showProductsPanel && (
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      onClick={() => setShowProductsPanel(true)}
+                      startIcon={<span>📦</span>}
+                      sx={{ fontWeight: 600 }}
+                    >
+                      Abrir catálogo manual
+                    </Button>
+                  )}
                 </Box>
               ) : (
                 <Box>
-                  {/* Header row */}
+                  {/* Header row - Compacto */}
                   <Box sx={{ 
                     display: 'grid', 
-                    gridTemplateColumns: '1.5fr 1.2fr 0.8fr 0.8fr 1fr', 
-                    gap: 1, 
-                    mb: 1, 
+                    gridTemplateColumns: '2fr 1fr 0.7fr 0.8fr 0.8fr 0.3fr', 
+                    gap: 0.5, 
+                    mb: 0.5, 
                     px: 1,
-                    pb: 1,
-                    borderBottom: '1px solid',
-                    borderColor: 'grey.300'
+                    pb: 0.5,
+                    borderBottom: '2px solid',
+                    borderColor: 'primary.main',
+                    position: 'sticky',
+                    top: 0,
+                    backgroundColor: 'white',
+                    zIndex: 1
                   }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.7rem', color: 'text.primary' }}>
                       PRODUCTO
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textAlign: 'center' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.7rem', textAlign: 'center', color: 'text.primary' }}>
                       PRESENTACIÓN
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textAlign: 'center' }}>
-                      PRECIO/U
+                    <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.7rem', textAlign: 'center', color: 'text.primary' }}>
+                      P/U
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textAlign: 'center' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.7rem', textAlign: 'center', color: 'text.primary' }}>
                       CANT
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textAlign: 'right' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.7rem', textAlign: 'right', color: 'text.primary' }}>
                       TOTAL
                     </Typography>
+                    <Box />
                   </Box>
                   
-                  {/* Cart items */}
+                  {/* Cart items - Filas compactas */}
                   {cartItems.map((item, idx) => (
                     <Box 
                       key={`${item.product.id}-${item.presentation?.id || 'base'}-${idx}`} 
                       sx={{ 
                         display: 'grid', 
-                        gridTemplateColumns: '1.5fr 1.2fr 0.8fr 0.8fr 1fr', 
-                        gap: 1, 
+                        gridTemplateColumns: '2fr 1fr 0.7fr 0.8fr 0.8fr 0.3fr', 
+                        gap: 0.5, 
                         alignItems: 'center',
-                        py: 1.5,
+                        py: 0.75,
                         px: 1,
                         borderBottom: '1px solid',
-                        borderColor: 'grey.100',
-                        '&:hover': { backgroundColor: 'grey.50' }
+                        borderColor: 'grey.200',
+                        '&:hover': { backgroundColor: 'grey.50' },
+                        '&:nth-of-type(even)': { backgroundColor: 'grey.25' }
                       }}
                     >
                       {/* Product name + image */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
                         <Avatar
                           src={getImageUrl(item.product.imageUrl) || undefined}
-                          sx={{ width: 36, height: 36, borderRadius: 1 }}
+                          sx={{ width: 28, height: 28, borderRadius: 1, flexShrink: 0 }}
                         >
                           📦
                         </Avatar>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-                            {item.product.name}
-                          </Typography>
-                        </Box>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            fontWeight: 600, 
+                            fontSize: '0.8rem',
+                            lineHeight: 1.2,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            color: 'text.primary'
+                          }}
+                        >
+                          {item.product.name}
+                        </Typography>
                       </Box>
                       
-                      {/* Presentation selector */}
+                      {/* Presentation selector - Compacto */}
                       <Box>
                         {item.product.presentations && item.product.presentations.length > 0 ? (
                           <FormControl size="small" fullWidth>
@@ -995,7 +1048,6 @@ export default function POS() {
                               onChange={(e) => {
                                 const value = e.target.value;
                                 if (value.startsWith('base-')) {
-                                  // Venta por unidad base
                                   const newUnitPrice = getPriceByType(item.product);
                                   setCartItems(prev => prev.map((ci, i) => 
                                     i === idx ? { 
@@ -1006,7 +1058,6 @@ export default function POS() {
                                     } : ci
                                   ));
                                 } else {
-                                  // Venta por presentación
                                   const pres = item.product.presentations?.find(p => p.id === value);
                                   if (pres) {
                                     const newUnitPrice = getPriceByType(item.product, pres);
@@ -1023,86 +1074,104 @@ export default function POS() {
                               }}
                               sx={{ 
                                 fontSize: '0.75rem',
-                                '& .MuiSelect-select': { py: 0.5 }
+                                color: 'text.primary',
+                                '& .MuiSelect-select': { py: 0.25, px: 0.5 }
                               }}
                             >
-                              <MenuItem value={`base-${item.product.baseUnit}`}>
-                                Por {item.product.baseUnit || 'unidad'}
+                              <MenuItem value={`base-${item.product.baseUnit}`} sx={{ fontSize: '0.75rem' }}>
+                                Por {item.product.baseUnit || 'und'}
                               </MenuItem>
                               {item.product.presentations.map(pres => (
-                                <MenuItem key={pres.id} value={pres.id}>
-                                  {pres.name} ({pres.quantity} {item.product.baseUnit})
+                                <MenuItem key={pres.id} value={pres.id} sx={{ fontSize: '0.75rem' }}>
+                                  {pres.name}
                                 </MenuItem>
                               ))}
                             </Select>
                           </FormControl>
                         ) : (
-                          <Typography variant="caption" color="text.secondary">
-                            Por {item.product.baseUnit || 'unidad'}
+                          <Typography variant="caption" sx={{ fontSize: '0.75rem', color: 'text.primary' }}>
+                            Por {item.product.baseUnit || 'und'}
                           </Typography>
                         )}
                       </Box>
                       
                       {/* Price per unit */}
-                      <Typography variant="body2" sx={{ textAlign: 'center', color: 'text.secondary', fontSize: '0.8rem' }}>
+                      <Typography variant="body2" sx={{ textAlign: 'center', color: 'text.primary', fontSize: '0.8rem', fontWeight: 500 }}>
                         ${formatNumber(item.unitPrice)}
                       </Typography>
                       
-                      {/* Quantity controls */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.25 }}>
-                        <Button
+                      {/* Quantity - Input editable */}
+                      <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                        <TextField
+                          type="number"
+                          value={item.quantity}
+                          onChange={(e) => {
+                            const newQty = parseInt(e.target.value) || 1;
+                            if (newQty > 0) {
+                              updateQuantity(idx, newQty);
+                            }
+                          }}
+                          onFocus={(e) => e.target.select()}
                           size="small"
-                          variant="outlined"
-                          onClick={() => updateQuantity(idx, item.quantity - 1)}
-                          sx={{ minWidth: 24, height: 24, p: 0, fontSize: '0.9rem' }}
-                        >
-                          -
-                        </Button>
-                        <Typography sx={{ fontWeight: 'bold', minWidth: 20, textAlign: 'center', fontSize: '0.85rem' }}>
-                          {item.quantity}
-                        </Typography>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => updateQuantity(idx, item.quantity + 1)}
-                          sx={{ minWidth: 24, height: 24, p: 0, fontSize: '0.9rem' }}
-                        >
-                          +
-                        </Button>
+                          inputProps={{ 
+                            min: 1, 
+                            style: { 
+                              textAlign: 'center', 
+                              fontWeight: 'bold',
+                              fontSize: '0.9rem',
+                              padding: '4px 2px',
+                              width: '40px',
+                              MozAppearance: 'textfield'
+                            } 
+                          }}
+                          sx={{ 
+                            width: 50,
+                            '& .MuiOutlinedInput-root': {
+                              '& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button': {
+                                WebkitAppearance: 'none',
+                                margin: 0,
+                              },
+                              '& input[type=number]': {
+                                MozAppearance: 'textfield',
+                              },
+                            }
+                          }}
+                        />
                       </Box>
                       
-                      {/* Total + delete */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main', fontSize: '0.85rem' }}>
-                          ${formatNumber(item.quantity * item.unitPrice)}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={() => removeItem(idx)}
-                          color="error"
-                          sx={{ p: 0.25 }}
-                        >
-                          🗑️
-                        </IconButton>
-                      </Box>
+                      {/* Total */}
+                      <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main', fontSize: '0.85rem', textAlign: 'right' }}>
+                        ${formatNumber(item.quantity * item.unitPrice)}
+                      </Typography>
+                      
+                      {/* Delete button */}
+                      <IconButton
+                        size="small"
+                        onClick={() => removeItem(idx)}
+                        color="error"
+                        sx={{ p: 0.25, width: 20, height: 20 }}
+                      >
+                        ✕
+                      </IconButton>
                     </Box>
                   ))}
                 </Box>
               )}
             </Box>
 
-            {/* Payment and Total - Diseño Profesional */}
+            {/* Payment and Total - Ultra Compacto */}
             <Box sx={{ 
-              p: 2, 
+              p: 1, 
               borderTop: 2, 
               borderColor: 'primary.main', 
-              backgroundColor: '#fafafa'
+              backgroundColor: '#fafafa',
+              flexShrink: 0
             }}>
-              {/* Row 1: Tipo de Venta + Domicilio */}
-              <Grid container spacing={1} sx={{ mb: 1.5 }}>
-                <Grid item xs={8}>
-                  <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block', fontWeight: 600 }}>
-                    TIPO DE VENTA
+              {/* Row 1: Tipo de Venta + Método de Pago + Domicilio - Todo en una línea */}
+              <Grid container spacing={0.5} sx={{ mb: 0.5 }}>
+                <Grid item xs={4}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 600, fontSize: '0.6rem', mb: 0.25 }}>
+                    TIPO VENTA
                   </Typography>
                   <ToggleButtonGroup
                     value={priceType}
@@ -1114,56 +1183,59 @@ export default function POS() {
                     fullWidth
                     sx={{ 
                       '& .MuiToggleButton-root': { 
-                        py: 1,
+                        py: 0.25,
                         fontWeight: 700,
-                        fontSize: '0.8rem',
-                        borderWidth: 2,
-                        '&.Mui-selected': {
-                          borderWidth: 2
-                        }
+                        fontSize: '0.6rem',
+                        borderWidth: 1,
+                        '&.Mui-selected': { borderWidth: 1 }
                       }
                     }}
                   >
-                    <ToggleButton 
-                      value="publico" 
-                      sx={{ 
-                        '&.Mui-selected': { 
-                          backgroundColor: alpha(theme.palette.primary.main, 0.15),
-                          borderColor: 'primary.main',
-                          color: 'primary.main'
-                        }
-                      }}
-                    >
-                      🏪 PÚBLICO
+                    <ToggleButton value="publico" sx={{ '&.Mui-selected': { backgroundColor: alpha(theme.palette.primary.main, 0.15), borderColor: 'primary.main', color: 'primary.main' } }}>
+                      🏪 PÚB
                     </ToggleButton>
-                    <ToggleButton 
-                      value="sanAlas" 
-                      sx={{ 
-                        '&.Mui-selected': { 
-                          backgroundColor: alpha(theme.palette.success.main, 0.15),
-                          borderColor: 'success.main',
-                          color: 'success.main'
-                        }
-                      }}
-                    >
-                      🍗 SAN ALAS
+                    <ToggleButton value="sanAlas" sx={{ '&.Mui-selected': { backgroundColor: alpha(theme.palette.success.main, 0.15), borderColor: 'success.main', color: 'success.main' } }}>
+                      🍗 SA
                     </ToggleButton>
-                    <ToggleButton 
-                      value="empleados" 
-                      sx={{ 
-                        '&.Mui-selected': { 
-                          backgroundColor: alpha(theme.palette.secondary.main, 0.15),
-                          borderColor: 'secondary.main',
-                          color: 'secondary.main'
-                        }
-                      }}
-                    >
-                      👷 EMPLEADOS
+                    <ToggleButton value="empleados" sx={{ '&.Mui-selected': { backgroundColor: alpha(theme.palette.secondary.main, 0.15), borderColor: 'secondary.main', color: 'secondary.main' } }}>
+                      👷 EMP
                     </ToggleButton>
                   </ToggleButtonGroup>
                 </Grid>
-                <Grid item xs={4}>
-                  <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block', fontWeight: 600 }}>
+                <Grid item xs={5}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 600, fontSize: '0.6rem', mb: 0.25 }}>
+                    MÉTODO PAGO
+                  </Typography>
+                  <ToggleButtonGroup
+                    value={paymentMethod}
+                    exclusive
+                    onChange={(_, newPayment) => {
+                      if (newPayment !== null) setPaymentMethod(newPayment);
+                    }}
+                    size="small"
+                    fullWidth
+                    sx={{ 
+                      '& .MuiToggleButton-root': { 
+                        py: 0.25,
+                        fontWeight: 700,
+                        fontSize: '0.55rem',
+                        borderWidth: 1
+                      }
+                    }}
+                  >
+                    <ToggleButton value="efectivo" sx={{ '&.Mui-selected': { backgroundColor: alpha(theme.palette.success.main, 0.15), borderColor: 'success.main', color: 'success.dark' } }}>
+                      💵 EFECT
+                    </ToggleButton>
+                    <ToggleButton value="transferencia" sx={{ '&.Mui-selected': { backgroundColor: alpha(theme.palette.info.main, 0.15), borderColor: 'info.main', color: 'info.dark' } }}>
+                      💳 TRANSF
+                    </ToggleButton>
+                    <ToggleButton value="fiado" sx={{ '&.Mui-selected': { backgroundColor: alpha(theme.palette.warning.main, 0.2), borderColor: 'warning.main', color: 'warning.dark' } }}>
+                      📝 FIADO
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                </Grid>
+                <Grid item xs={3}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 600, fontSize: '0.6rem', mb: 0.25 }}>
                     DOMICILIO
                   </Typography>
                   <ToggleButton
@@ -1173,239 +1245,134 @@ export default function POS() {
                     size="small"
                     fullWidth
                     sx={{ 
-                      py: 1,
+                      py: 0.25,
                       fontWeight: 700,
-                      fontSize: '0.8rem',
-                      borderWidth: 2,
+                      fontSize: '0.6rem',
+                      borderWidth: 1,
                       borderColor: includeDomicilio ? 'warning.main' : 'grey.400',
                       backgroundColor: includeDomicilio ? alpha(theme.palette.warning.main, 0.15) : 'transparent',
                       color: includeDomicilio ? 'warning.dark' : 'text.secondary',
-                      '&:hover': {
-                        backgroundColor: alpha(theme.palette.warning.main, 0.1)
-                      }
                     }}
                   >
-                    🚚 +DOMICILIO
+                    🚚 +DOM
                   </ToggleButton>
                 </Grid>
               </Grid>
 
-              {/* Domicilio Price Input */}
+              {/* Domicilio Price Input - Solo si está activo */}
               {includeDomicilio && (
-                <Box sx={{ mb: 1.5 }}>
-                  <TextField
-                    fullWidth
-                    label="🚚 Precio del Domicilio"
-                    value={domicilioPrice}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '');
-                      setDomicilioPrice(formatNumber(value));
-                    }}
-                    placeholder="Ej: 3.000"
-                    size="small"
-                    InputProps={{
-                      sx: { fontSize: '1rem', fontWeight: 'bold', backgroundColor: 'white' },
-                      startAdornment: <Typography sx={{ mr: 1, color: 'warning.main' }}>$</Typography>
-                    }}
-                    sx={{ 
-                      '& .MuiOutlinedInput-root': {
-                        '& fieldset': { borderColor: 'warning.main', borderWidth: 2 }
-                      }
-                    }}
-                  />
-                </Box>
-              )}
-
-              {/* Row 2: Método de Pago */}
-              <Box sx={{ mb: 1.5 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block', fontWeight: 600 }}>
-                  MÉTODO DE PAGO
-                </Typography>
-                <ToggleButtonGroup
-                  value={paymentMethod}
-                  exclusive
-                  onChange={(_, newPayment) => {
-                    if (newPayment !== null) setPaymentMethod(newPayment);
-                  }}
-                  size="small"
+                <TextField
                   fullWidth
-                  sx={{ 
-                    '& .MuiToggleButton-root': { 
-                      py: 0.8,
-                      fontWeight: 700,
-                      fontSize: '0.75rem',
-                      borderWidth: 2
-                    }
+                  size="small"
+                  value={domicilioPrice}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, '');
+                    setDomicilioPrice(formatNumber(value));
                   }}
-                >
-                  <ToggleButton 
-                    value="efectivo" 
-                    sx={{ 
-                      '&.Mui-selected': { 
-                        backgroundColor: alpha(theme.palette.success.main, 0.15),
-                        borderColor: 'success.main',
-                        color: 'success.dark'
-                      }
-                    }}
-                  >
-                    💵 EFECTIVO
-                  </ToggleButton>
-                  <ToggleButton 
-                    value="transferencia"
-                    sx={{ 
-                      '&.Mui-selected': { 
-                        backgroundColor: alpha(theme.palette.info.main, 0.15),
-                        borderColor: 'info.main',
-                        color: 'info.dark'
-                      }
-                    }}
-                  >
-                    💳 TRANSFERENCIA
-                  </ToggleButton>
-                  <ToggleButton 
-                    value="fiado"
-                    sx={{ 
-                      '&.Mui-selected': { 
-                        backgroundColor: alpha(theme.palette.warning.main, 0.2),
-                        borderColor: 'warning.main',
-                        color: 'warning.dark'
-                      }
-                    }}
-                  >
-                    📝 FIADO
-                  </ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
-
-              {/* Total Box - Prominent */}
-              <Box sx={{ 
-                p: 1.5, 
-                mb: 1.5, 
-                backgroundColor: priceType === 'publico' 
-                  ? alpha(theme.palette.primary.main, 0.1) 
-                  : priceType === 'sanAlas' 
-                    ? alpha(theme.palette.success.main, 0.1)
-                    : alpha(theme.palette.secondary.main, 0.1),
-                borderRadius: 2,
-                border: '2px solid',
-                borderColor: priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main'
-              }}>
-                {/* Subtotal productos */}
-                {includeDomicilio && (
-                  <>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        Subtotal productos:
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        ${formatNumber(productsSubtotal)}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                      <Typography variant="caption" color="warning.dark">
-                        🚚 Domicilio:
-                      </Typography>
-                      <Typography variant="body2" color="warning.dark">
-                        ${formatNumber(parseNumber(domicilioPrice))}
-                      </Typography>
-                    </Box>
-                  </>
-                )}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                    TOTAL ({priceType === 'publico' ? 'Público' : priceType === 'sanAlas' ? 'San Alas' : 'Empleados'})
-                  </Typography>
-                  <Typography 
-                    variant="h4" 
-                    sx={{ 
-                      fontWeight: 800, 
-                      color: priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main' 
-                    }}
-                  >
-                    ${formatNumber(total)}
-                  </Typography>
-                </Box>
-              </Box>
-
-              {/* Efectivo Recibido - solo si es efectivo */}
-              {paymentMethod === 'efectivo' && (
-                <Box sx={{ mb: 1.5 }}>
-                  <TextField
-                    fullWidth
-                    label="💵 Efectivo Recibido"
-                    value={cashReceived}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '');
-                      setCashReceived(formatNumber(value));
-                    }}
-                    placeholder="Ingrese cantidad"
-                    size="small"
-                    InputProps={{
-                      sx: { fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: 'white' },
-                      startAdornment: <Typography sx={{ mr: 1 }}>$</Typography>
-                    }}
-                  />
-                  
-                  {/* Cambio */}
-                  {cashReceivedNum > 0 && (
-                    <Box sx={{ 
-                      mt: 1,
-                      p: 1, 
-                      backgroundColor: change >= 0 ? alpha(theme.palette.success.main, 0.15) : alpha(theme.palette.error.main, 0.15),
-                      borderRadius: 1,
-                      border: '2px solid',
-                      borderColor: change >= 0 ? 'success.main' : 'error.main'
-                    }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {change >= 0 ? '💰 CAMBIO:' : '⚠️ FALTA:'}
-                        </Typography>
-                        <Typography 
-                          variant="h5" 
-                          sx={{ fontWeight: 'bold', color: change >= 0 ? 'success.main' : 'error.main' }}
-                        >
-                          ${formatNumber(Math.abs(change))}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  )}
-                </Box>
+                  placeholder="Precio domicilio"
+                  sx={{ mb: 0.5 }}
+                  InputProps={{
+                    sx: { fontSize: '0.8rem', fontWeight: 'bold', backgroundColor: 'white', py: 0 },
+                    startAdornment: <Typography sx={{ mr: 0.5, color: 'warning.main', fontSize: '0.8rem' }}>🚚 $</Typography>
+                  }}
+                />
               )}
 
-              {/* Botón Procesar Venta */}
-              <Button
-                fullWidth
-                variant="contained"
-                size="large"
-                disabled={!warehouseId || cartItems.length === 0 || (paymentMethod === 'efectivo' && cashReceivedNum < total)}
-                onClick={() => {
-                  if (paymentMethod === 'fiado') {
-                    setShowFiadoDialog(true);
-                  } else {
-                    setShowConfirmDialog(true);
-                  }
-                }}
-                sx={{
-                  py: 1.5,
-                  fontSize: '1rem',
-                  fontWeight: 800,
-                  borderRadius: 2,
-                  textTransform: 'uppercase',
-                  letterSpacing: 1,
-                  backgroundColor: paymentMethod === 'fiado' 
-                    ? 'warning.main' 
-                    : (priceType === 'publico' ? 'primary.main' : 'success.main'),
-                  '&:hover': {
-                    backgroundColor: paymentMethod === 'fiado' 
-                      ? 'warning.dark' 
-                      : (priceType === 'publico' ? 'primary.dark' : 'success.dark'),
-                    transform: 'scale(1.01)'
-                  },
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                {paymentMethod === 'fiado' ? '📝 REGISTRAR FIADO' : '💰 PROCESAR VENTA'}
-              </Button>
+              {/* Row 2: Total + Efectivo + Botón */}
+              <Grid container spacing={0.5} alignItems="stretch">
+                {/* Total */}
+                <Grid item xs={4}>
+                  <Box sx={{ 
+                    p: 0.75, 
+                    backgroundColor: priceType === 'publico' 
+                      ? alpha(theme.palette.primary.main, 0.1) 
+                      : priceType === 'sanAlas' 
+                        ? alpha(theme.palette.success.main, 0.1)
+                        : alpha(theme.palette.secondary.main, 0.1),
+                    borderRadius: 1,
+                    border: '2px solid',
+                    borderColor: priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center'
+                  }}>
+                    {includeDomicilio && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.55rem' }}>Prod: ${formatNumber(productsSubtotal)}</Typography>
+                        <Typography variant="caption" color="warning.dark" sx={{ fontSize: '0.55rem' }}>+Dom: ${formatNumber(parseNumber(domicilioPrice))}</Typography>
+                      </Box>
+                    )}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>TOTAL</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 800, color: priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main', lineHeight: 1 }}>
+                        ${formatNumber(total)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Grid>
+
+                {/* Efectivo - Campo grande solo si es efectivo */}
+                {paymentMethod === 'efectivo' && (
+                  <Grid item xs={4}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      value={cashReceived}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, '');
+                        setCashReceived(formatNumber(value));
+                      }}
+                      placeholder="Efectivo recibido"
+                      InputProps={{
+                        sx: { 
+                          fontSize: '1.1rem', 
+                          fontWeight: 'bold', 
+                          backgroundColor: 'white', 
+                          height: '100%',
+                          '& input': { py: 1.5 }
+                        },
+                        startAdornment: <Typography sx={{ mr: 0.5, fontSize: '1rem', fontWeight: 'bold' }}>💵 $</Typography>
+                      }}
+                    />
+                  </Grid>
+                )}
+
+                {/* Botón Procesar */}
+                <Grid item xs={paymentMethod === 'efectivo' ? 4 : 8}>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    disabled={!warehouseId || cartItems.length === 0 || (paymentMethod === 'efectivo' && cashReceivedNum < total)}
+                    onClick={() => {
+                      if (paymentMethod === 'fiado') {
+                        setShowFiadoDialog(true);
+                      } else {
+                        setShowConfirmDialog(true);
+                      }
+                    }}
+                    sx={{
+                      height: '100%',
+                      minHeight: 50,
+                      fontSize: '0.9rem',
+                      fontWeight: 800,
+                      borderRadius: 1,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                      backgroundColor: paymentMethod === 'fiado' 
+                        ? 'warning.main' 
+                        : (priceType === 'publico' ? 'primary.main' : 'success.main'),
+                      '&:hover': {
+                        backgroundColor: paymentMethod === 'fiado' 
+                          ? 'warning.dark' 
+                          : (priceType === 'publico' ? 'primary.dark' : 'success.dark'),
+                      }
+                    }}
+                  >
+                    {paymentMethod === 'fiado' ? '📝 FIADO' : '💰 VENDER'}
+                  </Button>
+                </Grid>
+              </Grid>
             </Box>
           </Box>
         </Grid>
@@ -1418,125 +1385,152 @@ export default function POS() {
         maxWidth="sm" 
         fullWidth
         PaperProps={{
-          sx: { borderRadius: 3 }
+          sx: { borderRadius: 3, minWidth: 400 }
         }}
       >
         <DialogTitle sx={{ 
-          pb: 1, 
-          backgroundColor: priceType === 'publico' ? 'primary.main' : 'success.main',
+          py: 2, 
+          backgroundColor: priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main',
           color: 'white',
           textAlign: 'center'
         }}>
           <Typography variant="h5" fontWeight="bold">
-            ⚠️ CONFIRMAR VENTA
+            ✅ CONFIRMAR VENTA
           </Typography>
         </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          {/* Resumen de la venta */}
-          <Box sx={{ 
-            p: 2, 
-            mb: 2, 
-            backgroundColor: 'grey.100', 
-            borderRadius: 2,
-            border: '2px solid',
-            borderColor: priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main'
-          }}>
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  TIPO DE VENTA
-                </Typography>
-                <Chip 
-                  label={priceType === 'publico' ? '🏪 PÚBLICO' : priceType === 'sanAlas' ? '🍗 SAN ALAS' : '👷 EMPLEADOS'} 
-                  color={priceType === 'publico' ? 'primary' : priceType === 'sanAlas' ? 'success' : 'secondary'}
-                  sx={{ fontWeight: 700 }}
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  MÉTODO DE PAGO
-                </Typography>
-                <Chip 
-                  label={paymentMethod === 'efectivo' ? '💵 EFECTIVO' : '💳 TRANSFERENCIA'} 
-                  color={paymentMethod === 'efectivo' ? 'success' : 'info'}
-                  sx={{ fontWeight: 700 }}
-                />
-              </Grid>
-            </Grid>
+        <DialogContent sx={{ pt: 3, pb: 2 }}>
+          {/* Info de venta compacta */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mb: 3 }}>
+            <Chip 
+              label={priceType === 'publico' ? '🏪 PÚBLICO' : priceType === 'sanAlas' ? '🍗 SAN ALAS' : '👷 EMPLEADOS'} 
+              color={priceType === 'publico' ? 'primary' : priceType === 'sanAlas' ? 'success' : 'secondary'}
+              sx={{ fontWeight: 700 }}
+            />
+            <Chip 
+              label={paymentMethod === 'efectivo' ? '💵 EFECTIVO' : '💳 TRANSFERENCIA'} 
+              color={paymentMethod === 'efectivo' ? 'success' : 'info'}
+              sx={{ fontWeight: 700 }}
+            />
           </Box>
 
-          {/* Lista de productos */}
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            PRODUCTOS ({cartItems.length}):
-          </Typography>
+          {/* Lista de productos compacta */}
           <Box sx={{ 
-            maxHeight: 200, 
+            maxHeight: 120, 
             overflow: 'auto', 
-            mb: 2,
-            p: 1,
+            mb: 3,
+            p: 1.5,
             backgroundColor: 'grey.50',
-            borderRadius: 1
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'grey.200'
           }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+              PRODUCTOS ({cartItems.length}):
+            </Typography>
             {cartItems.map((item, idx) => (
-              <Box key={idx} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
-                <Typography variant="body2">
+              <Box key={idx} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.25 }}>
+                <Typography variant="body2" color="text.primary">
                   {item.quantity}x {item.product.name} {item.presentation ? `(${item.presentation.name})` : ''}
                 </Typography>
-                <Typography variant="body2" fontWeight="bold">
+                <Typography variant="body2" fontWeight="bold" color="text.primary">
                   ${formatNumber(item.quantity * item.unitPrice)}
                 </Typography>
               </Box>
             ))}
+            {includeDomicilio && parseNumber(domicilioPrice) > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.25, borderTop: '1px dashed', borderColor: 'grey.300', mt: 0.5, pt: 0.5 }}>
+                <Typography variant="body2" color="warning.dark">🚚 Domicilio</Typography>
+                <Typography variant="body2" fontWeight="bold" color="warning.dark">${formatNumber(parseNumber(domicilioPrice))}</Typography>
+              </Box>
+            )}
           </Box>
 
-          {/* Domicilio si aplica */}
-          {includeDomicilio && parseNumber(domicilioPrice) > 0 && (
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, p: 1, backgroundColor: 'warning.50', borderRadius: 1 }}>
-              <Typography variant="body2" color="warning.dark">
-                🚚 Domicilio
-              </Typography>
-              <Typography variant="body2" fontWeight="bold" color="warning.dark">
-                ${formatNumber(parseNumber(domicilioPrice))}
-              </Typography>
-            </Box>
-          )}
+          {/* 3 CAMPOS PRINCIPALES - Diseño profesional */}
+          <Grid container spacing={2}>
+            {/* TOTAL A PAGAR */}
+            <Grid item xs={12}>
+              <Box sx={{ 
+                p: 2, 
+                backgroundColor: priceType === 'publico' 
+                  ? alpha(theme.palette.primary.main, 0.1) 
+                  : priceType === 'sanAlas'
+                    ? alpha(theme.palette.success.main, 0.1)
+                    : alpha(theme.palette.secondary.main, 0.1),
+                borderRadius: 2,
+                border: '3px solid',
+                borderColor: priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main',
+                textAlign: 'center'
+              }}>
+                <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 2 }}>
+                  TOTAL A PAGAR
+                </Typography>
+                <Typography 
+                  variant="h3" 
+                  sx={{ 
+                    fontWeight: 900, 
+                    color: priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main',
+                    lineHeight: 1
+                  }}
+                >
+                  ${formatNumber(total)}
+                </Typography>
+              </Box>
+            </Grid>
 
-          {/* Total destacado */}
-          <Box sx={{ 
-            p: 2, 
-            backgroundColor: priceType === 'publico' 
-              ? alpha(theme.palette.primary.main, 0.15) 
-              : priceType === 'sanAlas'
-                ? alpha(theme.palette.success.main, 0.15)
-                : alpha(theme.palette.secondary.main, 0.15),
-            borderRadius: 2,
-            textAlign: 'center',
-            border: '3px solid',
-            borderColor: priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main'
-          }}>
-            <Typography variant="body2" color="text.secondary">
-              TOTAL A PAGAR
-            </Typography>
-            <Typography 
-              variant="h3" 
-              fontWeight="bold" 
-              color={priceType === 'publico' ? 'primary.main' : priceType === 'sanAlas' ? 'success.main' : 'secondary.main'}
-            >
-              ${formatNumber(total)}
-            </Typography>
-          </Box>
+            {/* EFECTIVO RECIBIDO - Solo si es efectivo */}
+            {paymentMethod === 'efectivo' && (
+              <Grid item xs={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  backgroundColor: alpha(theme.palette.info.main, 0.1),
+                  borderRadius: 2,
+                  border: '2px solid',
+                  borderColor: 'info.main',
+                  textAlign: 'center',
+                  height: '100%'
+                }}>
+                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1 }}>
+                    💵 EFECTIVO
+                  </Typography>
+                  <Typography 
+                    variant="h4" 
+                    sx={{ fontWeight: 800, color: 'info.main', lineHeight: 1 }}
+                  >
+                    ${formatNumber(cashReceivedNum)}
+                  </Typography>
+                </Box>
+              </Grid>
+            )}
 
-          {/* Cambio si es efectivo */}
-          {paymentMethod === 'efectivo' && cashReceivedNum > 0 && (
-            <Box sx={{ mt: 2, p: 1.5, backgroundColor: 'success.50', borderRadius: 1, textAlign: 'center' }}>
-              <Typography variant="body2" color="text.secondary">
-                Efectivo: ${formatNumber(cashReceivedNum)} → Cambio: 
-                <strong style={{ color: '#2e7d32', marginLeft: 8 }}>
-                  ${formatNumber(change)}
-                </strong>
-              </Typography>
-            </Box>
-          )}
+            {/* CAMBIO - Solo si es efectivo */}
+            {paymentMethod === 'efectivo' && (
+              <Grid item xs={6}>
+                <Box sx={{ 
+                  p: 2, 
+                  backgroundColor: alpha(theme.palette.success.main, 0.15),
+                  borderRadius: 2,
+                  border: '3px solid',
+                  borderColor: 'success.main',
+                  textAlign: 'center',
+                  height: '100%'
+                }}>
+                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1 }}>
+                    💰 CAMBIO
+                  </Typography>
+                  <Typography 
+                    variant="h4" 
+                    sx={{ 
+                      fontWeight: 900, 
+                      color: 'success.main',
+                      lineHeight: 1
+                    }}
+                  >
+                    ${formatNumber(change)}
+                  </Typography>
+                </Box>
+              </Grid>
+            )}
+          </Grid>
         </DialogContent>
         <DialogActions sx={{ p: 2, gap: 1 }}>
           <Button 
@@ -1588,6 +1582,55 @@ export default function POS() {
               {cartItems.length} producto(s) - {priceType === 'publico' ? 'Precio Público' : priceType === 'sanAlas' ? 'Precio San Alas' : 'Precio Empleados'}
             </Typography>
           </Box>
+
+          {/* Selector de Tipo de Cliente */}
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>Tipo de Cliente *</InputLabel>
+            <Select
+              value={priceType}
+              label="Tipo de Cliente *"
+              onChange={(e) => {
+                const newPriceType = e.target.value as 'publico' | 'sanAlas' | 'empleados';
+                setPriceType(newPriceType);
+                // Actualizar precios del carrito según el nuevo tipo
+                setCartItems(prev => prev.map(item => {
+                  let newPrice = Number(item.product.defaultPrice) || 0;
+                  if (item.presentation) {
+                    if (newPriceType === 'sanAlas' && item.presentation.priceSanAlas) {
+                      newPrice = Number(item.presentation.priceSanAlas);
+                    } else if (newPriceType === 'empleados' && item.presentation.priceEmpleados) {
+                      newPrice = Number(item.presentation.priceEmpleados);
+                    } else {
+                      newPrice = Number(item.presentation.price);
+                    }
+                  } else {
+                    if (newPriceType === 'sanAlas' && item.product.priceSanAlas) {
+                      newPrice = Number(item.product.priceSanAlas);
+                    } else if (newPriceType === 'empleados' && item.product.priceEmpleados) {
+                      newPrice = Number(item.product.priceEmpleados);
+                    }
+                  }
+                  return { ...item, unitPrice: newPrice, priceType: newPriceType };
+                }));
+              }}
+            >
+              <MenuItem value="publico">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  🏪 Público General
+                </Box>
+              </MenuItem>
+              <MenuItem value="sanAlas">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  🍗 San Alas
+                </Box>
+              </MenuItem>
+              <MenuItem value="empleados">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  👷 Empleado
+                </Box>
+              </MenuItem>
+            </Select>
+          </FormControl>
 
           <TextField
             fullWidth
@@ -1772,252 +1815,6 @@ export default function POS() {
         <DialogActions>
           <Button onClick={() => setShowScannerTest(false)} variant="contained">
             Cerrar
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Cash Close Dialog */}
-      <Dialog 
-        open={showCashCloseDialog} 
-        onClose={() => setShowCashCloseDialog(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ backgroundColor: 'error.main', color: 'white', fontWeight: 'bold' }}>
-          🔒 Cerrar Caja
-        </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Para cerrar la caja ingrese sus credenciales y el monto en efectivo actual.
-          </Typography>
-          
-          {cashCloseError && (
-            <Alert severity="error" sx={{ mb: 2 }}>{cashCloseError}</Alert>
-          )}
-          
-          <TextField
-            fullWidth
-            label="Email de usuario"
-            type="email"
-            value={cashCloseEmail}
-            onChange={(e) => setCashCloseEmail(e.target.value)}
-            sx={{ mb: 2 }}
-            autoFocus
-          />
-          
-          <TextField
-            fullWidth
-            label="Contraseña"
-            type="password"
-            value={cashClosePassword}
-            onChange={(e) => setCashClosePassword(e.target.value)}
-            sx={{ mb: 3 }}
-          />
-          
-          {/* Conteo de efectivo */}
-          <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, color: 'primary.main' }}>
-            💵 Conteo de Efectivo
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            <TextField
-              fullWidth
-              label="Billetes"
-              value={cashCloseBilletes}
-              onChange={(e) => setCashCloseBilletes(formatNumber(e.target.value))}
-              InputProps={{ startAdornment: <Typography sx={{ mr: 1 }}>$</Typography> }}
-              placeholder="0"
-            />
-            <TextField
-              fullWidth
-              label="Monedas"
-              value={cashCloseMonedas}
-              onChange={(e) => setCashCloseMonedas(formatNumber(e.target.value))}
-              InputProps={{ startAdornment: <Typography sx={{ mr: 1 }}>$</Typography> }}
-              placeholder="0"
-            />
-          </Box>
-          
-          {/* Total calculado */}
-          <Box sx={{ 
-            p: 2, 
-            mb: 2, 
-            backgroundColor: 'success.50', 
-            borderRadius: 2, 
-            border: '2px solid',
-            borderColor: 'success.main'
-          }}>
-            <Typography variant="body2" color="text.secondary">Total en Caja:</Typography>
-            <Typography variant="h4" fontWeight="bold" color="success.main">
-              ${formatNumber(parseNumber(cashCloseBilletes) + parseNumber(cashCloseMonedas))}
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Billetes: ${formatNumber(parseNumber(cashCloseBilletes))}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Monedas: ${formatNumber(parseNumber(cashCloseMonedas))}
-              </Typography>
-            </Box>
-          </Box>
-          
-          <TextField
-            fullWidth
-            label="Notas del cierre (opcional)"
-            multiline
-            rows={2}
-            value={cashCloseNotes}
-            onChange={(e) => setCashCloseNotes(e.target.value)}
-          />
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button 
-            onClick={() => setShowCashCloseDialog(false)}
-            disabled={isProcessing}
-          >
-            Cancelar
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleCashClose}
-            disabled={!cashCloseEmail || !cashClosePassword || (parseNumber(cashCloseBilletes) + parseNumber(cashCloseMonedas) === 0) || isProcessing}
-          >
-            {isProcessing ? '⏳ Cerrando...' : '🔒 Cerrar Caja'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Cash Close Summary Dialog */}
-      <Dialog 
-        open={showCashCloseSummary} 
-        onClose={() => setShowCashCloseSummary(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle sx={{ backgroundColor: 'success.main', color: 'white', fontWeight: 'bold' }}>
-          ✅ Cierre de Caja Completado
-        </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          {cashCloseSummary && (
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Cerrado por: {cashCloseSummary.closedBy}
-              </Typography>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Fecha: {new Date(cashCloseSummary.closedAt).toLocaleString('es-CO')}
-              </Typography>
-              
-              <Grid container spacing={2} sx={{ mt: 2 }}>
-                <Grid item xs={6} md={3}>
-                  <Card sx={{ backgroundColor: 'primary.light', color: 'white' }}>
-                    <CardContent>
-                      <Typography variant="body2">Ventas Totales</Typography>
-                      <Typography variant="h5" fontWeight="bold">
-                        ${formatNumber(cashCloseSummary.summary.totalSales)}
-                      </Typography>
-                      <Typography variant="caption">{cashCloseSummary.summary.salesCount} ventas</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={6} md={3}>
-                  <Card sx={{ backgroundColor: 'success.light', color: 'white' }}>
-                    <CardContent>
-                      <Typography variant="body2">💵 Efectivo</Typography>
-                      <Typography variant="h5" fontWeight="bold">
-                        ${formatNumber(cashCloseSummary.summary.totalCash)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={6} md={3}>
-                  <Card sx={{ backgroundColor: 'info.light', color: 'white' }}>
-                    <CardContent>
-                      <Typography variant="body2">🏦 Transferencias</Typography>
-                      <Typography variant="h5" fontWeight="bold">
-                        ${formatNumber(cashCloseSummary.summary.totalTransfer)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={6} md={3}>
-                  <Card sx={{ backgroundColor: 'warning.light', color: 'white' }}>
-                    <CardContent>
-                      <Typography variant="body2">📝 Fiados</Typography>
-                      <Typography variant="h5" fontWeight="bold">
-                        ${formatNumber(cashCloseSummary.summary.totalFiados)}
-                      </Typography>
-                      <Typography variant="caption">{cashCloseSummary.summary.fiadosCount} nuevos</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </Grid>
-
-              <Box sx={{ mt: 3, p: 2, backgroundColor: 'grey.100', borderRadius: 2 }}>
-                <Grid container spacing={2}>
-                  <Grid item xs={6} md={3}>
-                    <Typography variant="body2" color="text.secondary">Apertura:</Typography>
-                    <Typography variant="h6">${formatNumber(cashCloseSummary.summary.openingAmount)}</Typography>
-                  </Grid>
-                  <Grid item xs={6} md={3}>
-                    <Typography variant="body2" color="text.secondary">Efectivo esperado:</Typography>
-                    <Typography variant="h6">${formatNumber(cashCloseSummary.summary.expectedCash)}</Typography>
-                  </Grid>
-                  <Grid item xs={6} md={3}>
-                    <Typography variant="body2" color="text.secondary">Billetes contados:</Typography>
-                    <Typography variant="h6">${formatNumber(cashCloseSummary.billetes || 0)}</Typography>
-                  </Grid>
-                  <Grid item xs={6} md={3}>
-                    <Typography variant="body2" color="text.secondary">Monedas contadas:</Typography>
-                    <Typography variant="h6">${formatNumber(cashCloseSummary.monedas || 0)}</Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" color="text.secondary">Total contado:</Typography>
-                    <Typography variant="h6" fontWeight="bold">${formatNumber(cashCloseSummary.summary.actualCash)}</Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" color="text.secondary">Diferencia:</Typography>
-                    <Typography 
-                      variant="h6" 
-                      color={
-                        cashCloseSummary.summary.cashDifference === 0 ? 'success.main' : 
-                        cashCloseSummary.summary.cashDifference > 0 ? 'info.main' : 'error.main'
-                      }
-                      fontWeight="bold"
-                    >
-                      ${formatNumber(Math.abs(cashCloseSummary.summary.cashDifference))}
-                      {' '}
-                      <Chip 
-                        size="small" 
-                        label={cashCloseSummary.summary.differenceStatus}
-                        color={
-                          cashCloseSummary.summary.differenceStatus === 'CUADRADO' ? 'success' :
-                          cashCloseSummary.summary.differenceStatus === 'SOBRANTE' ? 'info' : 'error'
-                        }
-                      />
-                    </Typography>
-                  </Grid>
-                </Grid>
-              </Box>
-
-              <Box sx={{ mt: 3, p: 2, backgroundColor: 'success.50', borderRadius: 2, border: '1px solid', borderColor: 'success.main' }}>
-                <Typography variant="body2" color="text.secondary">Ganancia Bruta del Turno:</Typography>
-                <Typography variant="h4" color="success.main" fontWeight="bold">
-                  ${formatNumber(cashCloseSummary.summary.grossProfit)}
-                </Typography>
-              </Box>
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button
-            variant="contained"
-            color="success"
-            onClick={() => {
-              setShowCashCloseSummary(false);
-              setCashCloseSummary(null);
-            }}
-          >
-            ✅ Entendido
           </Button>
         </DialogActions>
       </Dialog>

@@ -154,7 +154,7 @@ export async function categoryRoutes(app: FastifyInstance) {
     }
   });
 
-  // Eliminar categoría (soft delete)
+  // Eliminar categoría (y sus productos asociados)
   app.delete('/categories/:id', {
     schema: {
       summary: 'Eliminar categoría',
@@ -164,27 +164,56 @@ export async function categoryRoutes(app: FastifyInstance) {
         required: ['id'],
         properties: { id: { type: 'string' } },
       },
+      querystring: {
+        type: 'object',
+        properties: {
+          force: { type: 'boolean' },
+        },
+      },
     },
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const { force } = (request.query as { force?: boolean }) || {};
 
-    // Verificar si tiene productos
+    // Contar productos asociados
     const productsCount = await app.prisma.product.count({
       where: { categoryId: id },
     });
 
-    if (productsCount > 0) {
-      return reply.code(400).send({
-        message: `No se puede eliminar la categoría porque tiene ${productsCount} productos asociados`,
-      });
-    }
-
     try {
+      // Si tiene productos y force=true, eliminar los productos primero
+      if (productsCount > 0) {
+        // Eliminar presentaciones de los productos
+        await app.prisma.productPresentation.deleteMany({
+          where: {
+            product: { categoryId: id }
+          }
+        });
+        
+        // Eliminar precios de los productos
+        await app.prisma.productPrice.deleteMany({
+          where: {
+            product: { categoryId: id }
+          }
+        });
+        
+        // Eliminar los productos (soft delete)
+        await app.prisma.product.updateMany({
+          where: { categoryId: id },
+          data: { isActive: false },
+        });
+      }
+
+      // Eliminar la categoría (soft delete)
       await app.prisma.category.update({
         where: { id },
         data: { isActive: false },
       });
-      return { message: 'Categoría eliminada' };
+      
+      return { 
+        message: 'Categoría eliminada',
+        productsDeleted: productsCount 
+      };
     } catch (error) {
       return reply.code(404).send({ message: 'Categoría no encontrada' });
     }

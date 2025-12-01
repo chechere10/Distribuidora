@@ -8,6 +8,9 @@ import { randomUUID } from 'crypto';
 
 const execAsync = promisify(exec);
 
+// Variable para el intervalo del scheduler
+let backupSchedulerInterval: NodeJS.Timeout | null = null;
+
 // Directorio de backups dentro del contenedor
 const BACKUP_DIR = process.env.BACKUP_DIR || '/app/backups';
 const DB_HOST = process.env.DATABASE_HOST || 'db';
@@ -307,7 +310,115 @@ function calculateNextBackup(config: BackupConfig): string | null {
   return next.toISOString();
 }
 
+// ============ SCHEDULER DE BACKUPS AUTOMÁTICOS ============
+async function checkAndRunScheduledBackup(): Promise<void> {
+  try {
+    const config = loadConfig();
+    
+    // Si no está habilitado, no hacer nada
+    if (!config.enabled) {
+      return;
+    }
+    
+    const now = new Date();
+    const [targetHours, targetMinutes] = config.time.split(':').map(Number);
+    
+    // Verificar si es el momento de hacer backup
+    let shouldBackup = false;
+    
+    switch (config.frequency) {
+      case 'hourly':
+        // Hacer backup al inicio de cada hora (minuto 0)
+        if (now.getMinutes() === 0) {
+          shouldBackup = true;
+        }
+        break;
+        
+      case 'daily':
+        // Hacer backup a la hora configurada
+        if (now.getHours() === targetHours && now.getMinutes() === targetMinutes) {
+          shouldBackup = true;
+        }
+        break;
+        
+      case 'weekly':
+        // Hacer backup el día de la semana configurado a la hora configurada
+        const targetDay = config.dayOfWeek ?? 0;
+        if (now.getDay() === targetDay && now.getHours() === targetHours && now.getMinutes() === targetMinutes) {
+          shouldBackup = true;
+        }
+        break;
+        
+      case 'monthly':
+        // Hacer backup el día del mes configurado a la hora configurada
+        const targetDayOfMonth = config.dayOfMonth || 1;
+        if (now.getDate() === targetDayOfMonth && now.getHours() === targetHours && now.getMinutes() === targetMinutes) {
+          shouldBackup = true;
+        }
+        break;
+    }
+    
+    // Verificar que no hayamos hecho backup en el último minuto (evitar duplicados)
+    if (shouldBackup && config.lastBackup) {
+      const lastBackupTime = new Date(config.lastBackup);
+      const timeSinceLastBackup = now.getTime() - lastBackupTime.getTime();
+      // Si el último backup fue hace menos de 2 minutos, no hacer otro
+      if (timeSinceLastBackup < 2 * 60 * 1000) {
+        shouldBackup = false;
+      }
+    }
+    
+    if (shouldBackup) {
+      console.log(`[BACKUP SCHEDULER] Iniciando backup automático programado...`);
+      const targetPath = config.backupPath || BACKUP_DIR;
+      const backup = await createBackup(targetPath, 'automatic');
+      console.log(`[BACKUP SCHEDULER] Backup automático completado: ${backup.filename}`);
+      
+      // Actualizar nextBackup
+      const updatedConfig = loadConfig();
+      updatedConfig.nextBackup = calculateNextBackup(updatedConfig) || undefined;
+      saveConfig(updatedConfig);
+    }
+  } catch (error) {
+    console.error('[BACKUP SCHEDULER] Error en backup automático:', error);
+  }
+}
+
+// Iniciar el scheduler (revisa cada minuto)
+function startBackupScheduler(): void {
+  if (backupSchedulerInterval) {
+    clearInterval(backupSchedulerInterval);
+  }
+  
+  console.log('[BACKUP SCHEDULER] Scheduler iniciado - revisando cada minuto');
+  
+  // Revisar inmediatamente al iniciar
+  checkAndRunScheduledBackup();
+  
+  // Revisar cada minuto
+  backupSchedulerInterval = setInterval(() => {
+    checkAndRunScheduledBackup();
+  }, 60 * 1000); // 60 segundos
+}
+
+// Detener el scheduler
+function stopBackupScheduler(): void {
+  if (backupSchedulerInterval) {
+    clearInterval(backupSchedulerInterval);
+    backupSchedulerInterval = null;
+    console.log('[BACKUP SCHEDULER] Scheduler detenido');
+  }
+}
+
 export const backupRoutes: FastifyPluginAsync = async (app) => {
+  // Iniciar el scheduler de backups automáticos
+  startBackupScheduler();
+  
+  // Detener scheduler cuando se cierra la app
+  app.addHook('onClose', async () => {
+    stopBackupScheduler();
+  });
+
   // Obtener información del sistema
   app.get('/backup/system-info', async (req, reply) => {
     try {

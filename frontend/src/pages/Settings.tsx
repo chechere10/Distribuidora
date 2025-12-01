@@ -467,10 +467,10 @@ export default function Settings() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 2, height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" fontWeight="bold" color="primary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box sx={{ mb: 2, flexShrink: 0 }}>
+        <Typography variant="h5" fontWeight="bold" color="primary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <SettingsIcon fontSize="large" />
           Configuración
         </Typography>
@@ -480,7 +480,7 @@ export default function Settings() {
       </Box>
 
       {/* Información del Sistema */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
+      <Grid container spacing={2} sx={{ mb: 2, flexShrink: 0 }}>
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ bgcolor: alpha(theme.palette.primary.main, 0.1), height: '100%' }}>
             <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -551,7 +551,9 @@ export default function Settings() {
         </Grid>
       </Grid>
 
-      <Grid container spacing={3}>
+      {/* Scrollable Content */}
+      <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+      <Grid container spacing={2}>
         {/* Panel de Acciones Rápidas */}
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 3, height: '100%' }}>
@@ -927,6 +929,7 @@ export default function Settings() {
           </Paper>
         </Grid>
       </Grid>
+      </Box>
 
       {/* Diálogo de Selección de Backup para Restaurar */}
       <Dialog

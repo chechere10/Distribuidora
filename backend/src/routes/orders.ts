@@ -229,6 +229,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
         total: order.total,
         userId: userId || null,
         paymentMethod: paymentMethod,
+        priceType: order.priceType || 'publico', // Mantener el tipo de precio del fiado
         items: {
           create: order.items.map(item => ({
             productId: item.productId,
@@ -334,7 +335,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
     };
   });
 
-  // Eliminar pedido (solo si está cancelado)
+  // Eliminar pedido (cualquier estado)
   fastify.delete('/:id', {
     preHandler: [fastify.authenticate]
   }, async (request, reply) => {
@@ -348,8 +349,20 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Pedido no encontrado' });
     }
 
-    if (order.status !== 'CANCELLED') {
-      return reply.status(400).send({ error: 'Solo se pueden eliminar pedidos cancelados' });
+    // Si el fiado está pendiente, devolver stock al inventario
+    if (order.status === 'PENDING') {
+      const items = await fastify.prisma.orderItem.findMany({
+        where: { orderId: id }
+      });
+
+      for (const item of items) {
+        await fastify.prisma.product.update({
+          where: { id: item.productId },
+          data: {
+            baseStock: { increment: item.baseQuantity }
+          }
+        });
+      }
     }
 
     await fastify.prisma.orderItem.deleteMany({
@@ -367,7 +380,7 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
   fastify.get('/stats/summary', {
     preHandler: [fastify.authenticate]
   }, async (request, reply) => {
-    const [pending, paid, cancelled] = await Promise.all([
+    const [pending, paid, cancelled, returned] = await Promise.all([
       fastify.prisma.order.aggregate({
         where: { status: 'PENDING' },
         _sum: { total: true },
@@ -380,6 +393,11 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       }),
       fastify.prisma.order.aggregate({
         where: { status: 'CANCELLED' },
+        _count: true
+      }),
+      fastify.prisma.order.aggregate({
+        where: { status: 'RETURNED' },
+        _sum: { total: true },
         _count: true
       })
     ]);
@@ -395,6 +413,10 @@ export default async function ordersRoutes(fastify: FastifyInstance) {
       },
       cancelled: {
         count: cancelled._count
+      },
+      returned: {
+        count: returned._count,
+        total: returned._sum.total?.toNumber() || 0
       },
       totalPending: pending._sum.total?.toNumber() || 0
     };

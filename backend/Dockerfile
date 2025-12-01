@@ -18,9 +18,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Instalar openssl, certificados y cliente PostgreSQL 16 para backups
+# Instalar openssl, certificados, cliente PostgreSQL 16 y cups-client para impresión
 RUN apt-get update -y && \
-    apt-get install -y openssl ca-certificates gnupg2 wget && \
+    apt-get install -y openssl ca-certificates gnupg2 wget cups-client && \
     echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list && \
     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg && \
     apt-get update -y && \

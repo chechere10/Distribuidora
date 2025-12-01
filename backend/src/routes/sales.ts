@@ -4,8 +4,13 @@ import { createSale } from '../lib/inventory';
 import PDFDocument from 'pdfkit';
 import { formatCOP, toNumber } from '../lib/format';
 import net from 'node:net';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { config } from '../config';
-import { buildSaleTicketEscpos } from '../lib/escpos';
+import { buildSaleTicketEscpos, buildSaleTicketText } from '../lib/escpos';
 
 export async function salesRoutes(app: FastifyInstance) {
   const itemSchema = z.object({ 
@@ -86,15 +91,42 @@ export async function salesRoutes(app: FastifyInstance) {
     schema: {
       summary: 'Listar ventas',
       tags: ['sales'],
-      querystring: { type: 'object', properties: { limit: { type: 'integer' }, offset: { type: 'integer' } } },
+      querystring: { type: 'object', properties: { limit: { type: 'integer' }, offset: { type: 'integer' }, search: { type: 'string' } } },
     },
   }, async (request, reply) => {
     const qp = (request.query as any) ?? {};
     const limit = Math.min(Math.max(Number(qp.limit ?? 50), 1), 200);
     const offset = Math.max(Number(qp.offset ?? 0), 0);
+    const search = qp.search?.trim() || '';
+
+    // Construir filtro de búsqueda
+    let whereClause: any = {};
+    if (search) {
+      const saleNumberSearch = parseInt(search);
+      whereClause = {
+        OR: [
+          // Búsqueda por número de venta
+          ...(isNaN(saleNumberSearch) ? [] : [{ saleNumber: saleNumberSearch }]),
+          // Búsqueda por nombre de producto
+          {
+            items: {
+              some: {
+                product: {
+                  name: {
+                    contains: search,
+                    mode: 'insensitive'
+                  }
+                }
+              }
+            }
+          }
+        ]
+      };
+    }
+
     const [total, rows] = await Promise.all([
-      app.prisma.sale.count(),
-      app.prisma.sale.findMany({ orderBy: { createdAt: 'desc' }, take: limit, skip: offset, include: { items: { include: { product: true, presentation: true } }, user: { select: { id: true, username: true, name: true } } } }),
+      app.prisma.sale.count({ where: whereClause }),
+      app.prisma.sale.findMany({ where: whereClause, orderBy: { createdAt: 'desc' }, take: limit, skip: offset, include: { items: { include: { product: true, presentation: true } }, user: { select: { id: true, username: true, name: true } } } }),
     ]);
     reply.header('X-Total-Count', String(total));
     reply.header('X-Limit', String(limit));
@@ -229,6 +261,19 @@ export async function salesRoutes(app: FastifyInstance) {
     return reply;
   });
 
+  // Helper para imprimir con CUPS (texto plano)
+  const execAsync = promisify(exec);
+  const printWithCups = async (text: string, printerName: string): Promise<void> => {
+    const tmpFile = path.join(os.tmpdir(), `ticket-${Date.now()}.txt`);
+    await fs.promises.writeFile(tmpFile, text, 'utf-8');
+    try {
+      // Usar lp para imprimir texto sin márgenes
+      await execAsync(`lp -d "${printerName}" -o page-top=0 -o page-bottom=0 -o page-left=0 "${tmpFile}"`);
+    } finally {
+      await fs.promises.unlink(tmpFile).catch(() => {});
+    }
+  };
+
   app.get('/sales/:id/receipt.escpos', {
     schema: {
       summary: 'Recibo ESC/POS',
@@ -246,6 +291,7 @@ export async function salesRoutes(app: FastifyInstance) {
 
     const bytes = buildSaleTicketEscpos(sale);
 
+    // 1. Impresora de red (socket TCP)
     if (config.printerHost) {
       await new Promise<void>((resolve, reject) => {
         const socket = new net.Socket();
@@ -258,12 +304,122 @@ export async function salesRoutes(app: FastifyInstance) {
           });
         });
       });
-      return reply.send({ printed: true, host: config.printerHost, port: config.printerPort });
-    } else {
-      reply.header('Content-Type', 'application/octet-stream');
-      reply.header('Content-Disposition', `attachment; filename="ticket-${id}.escpos"`);
-      return reply.send(Buffer.from(bytes));
+      return reply.send({ printed: true, method: 'network', host: config.printerHost, port: config.printerPort });
     }
+    
+    // 2. Impresora local CUPS (usar texto plano)
+    if (config.printerName) {
+      try {
+        const textTicket = buildSaleTicketText(sale);
+        await printWithCups(textTicket, config.printerName);
+        return reply.send({ printed: true, method: 'cups', printer: config.printerName });
+      } catch (err: any) {
+        return reply.code(500).send({ printed: false, error: err.message });
+      }
+    }
+    
+    // 3. Descargar archivo
+    reply.header('Content-Type', 'application/octet-stream');
+    reply.header('Content-Disposition', `attachment; filename="ticket-${id}.escpos"`);
+    return reply.send(Buffer.from(bytes));
+  });
+
+  // Nueva ruta: Imprimir recibo POST (para imprimir directamente)
+  app.post('/sales/:id/print', {
+    schema: {
+      summary: 'Imprimir recibo directamente',
+      tags: ['sales'],
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+    },
+  }, async (request, reply) => {
+    const id = (request.params as any).id as string;
+    const sale = await app.prisma.sale.findUnique({
+      where: { id },
+      include: { items: { include: { product: true, presentation: true } }, warehouse: true, user: true },
+    });
+    if (!sale) return reply.code(404).send({ message: 'Venta no encontrada' });
+
+    // Intentar imprimir
+    if (config.printerHost) {
+      // Impresora de red: usar ESC/POS binario
+      const bytes = buildSaleTicketEscpos(sale);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const socket = new net.Socket();
+          socket.on('error', reject);
+          socket.connect(config.printerPort, config.printerHost as string, () => {
+            socket.write(Buffer.from(bytes), (err) => {
+              if (err) reject(err);
+              socket.end();
+              resolve();
+            });
+          });
+        });
+        return reply.send({ success: true, method: 'network', printer: `${config.printerHost}:${config.printerPort}` });
+      } catch (err: any) {
+        return reply.code(500).send({ success: false, error: err.message });
+      }
+    }
+    
+    if (config.printerName) {
+      // Impresora CUPS: usar texto plano
+      try {
+        const textTicket = buildSaleTicketText(sale);
+        await printWithCups(textTicket, config.printerName);
+        return reply.send({ success: true, method: 'cups', printer: config.printerName });
+      } catch (err: any) {
+        return reply.code(500).send({ success: false, error: err.message });
+      }
+    }
+    
+    return reply.code(400).send({ success: false, error: 'No hay impresora configurada. Configure PRINTER_NAME o PRINTER_HOST en las variables de entorno.' });
+  });
+
+  // Abrir caja registradora (cash drawer)
+  app.post('/sales/open-drawer', {
+    schema: {
+      summary: 'Abrir caja registradora',
+      tags: ['sales'],
+    },
+  }, async (request, reply) => {
+    // Comando ESC/POS para abrir caja: ESC p m t1 t2
+    // m = pin del cajón (0 o 1), t1 = tiempo pulso ON, t2 = tiempo pulso OFF
+    const openDrawerCmd = Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]); // ESC p 0 25 250
+    
+    // 1. Intentar impresora de red
+    if (config.printerHost) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const socket = new net.Socket();
+          socket.on('error', reject);
+          socket.connect(config.printerPort, config.printerHost as string, () => {
+            socket.write(openDrawerCmd, (err) => {
+              if (err) reject(err);
+              socket.end();
+              resolve();
+            });
+          });
+        });
+        return reply.send({ success: true, method: 'network' });
+      } catch (err: any) {
+        return reply.code(500).send({ success: false, error: err.message });
+      }
+    }
+    
+    // 2. Intentar impresora CUPS (enviar comando binario directamente)
+    if (config.printerName) {
+      try {
+        const tmpFile = path.join(os.tmpdir(), `drawer-${Date.now()}.bin`);
+        await fs.promises.writeFile(tmpFile, openDrawerCmd);
+        await execAsync(`lp -d "${config.printerName}" -o raw "${tmpFile}"`);
+        await fs.promises.unlink(tmpFile).catch(() => {});
+        return reply.send({ success: true, method: 'cups' });
+      } catch (err: any) {
+        return reply.code(500).send({ success: false, error: err.message });
+      }
+    }
+    
+    return reply.code(400).send({ success: false, error: 'No hay impresora configurada' });
   });
 
   // Eliminar venta

@@ -30,6 +30,7 @@ import { supplierRoutes } from './routes/suppliers';
 import { supplierIssuesRoutes } from './routes/supplier-issues';
 import { backupRoutes } from './routes/backup';
 import { systemRoutes } from './routes/system';
+import { returnsRoutes } from './routes/returns';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
@@ -189,6 +190,7 @@ async function start() {
   await app.register(supplierIssuesRoutes, { prefix: '/api' });
   await app.register(backupRoutes, { prefix: '/api' });
   await app.register(systemRoutes, { prefix: '/api' });
+  await app.register(returnsRoutes, { prefix: '/api' });
 
   app.addHook('onRequest', async (req, reply) => {
     // Public routes

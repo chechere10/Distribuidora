@@ -77,6 +77,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
 import { es } from 'date-fns/locale/es';
 import { api, getToken } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 // ============ CONFIGURACIÓN ============
 const API_BASE_URL = 'http://localhost:3001';
@@ -208,6 +209,7 @@ interface Stats {
 export default function Purchases() {
   const theme = useTheme();
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -245,9 +247,11 @@ export default function Purchases() {
     supplierId: '',
     supplierName: '',
     invoiceNumber: '',
-    notes: '',
     items: [] as PurchaseItem[]
   });
+  
+  // Consecutivo de factura
+  const [nextInvoiceNumber, setNextInvoiceNumber] = useState(1);
 
   // Estadísticas
   const [stats, setStats] = useState<Stats | null>(null);
@@ -378,7 +382,8 @@ export default function Purchases() {
         loadProducts(),
         loadStats(),
         loadCategories(),
-        loadPendingIssues()
+        loadPendingIssues(),
+        loadNextInvoiceNumber()
       ]);
     } catch (err) {
       console.error('Error loading data:', err);
@@ -456,6 +461,26 @@ export default function Purchases() {
       setPendingIssues(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error loading pending issues:', err);
+    }
+  };
+
+  const loadNextInvoiceNumber = async () => {
+    try {
+      // Obtener el último número de factura usado
+      const response = await fetch('/api/purchases?limit=1', {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      const data = await response.json();
+      if (Array.isArray(data) && data.length > 0) {
+        // Buscar el máximo purchaseNumber y sumarle 1
+        const lastNumber = data[0].purchaseNumber || 0;
+        setNextInvoiceNumber(lastNumber + 1);
+      } else {
+        setNextInvoiceNumber(1);
+      }
+    } catch (err) {
+      console.error('Error loading next invoice number:', err);
+      setNextInvoiceNumber(1);
     }
   };
 
@@ -624,14 +649,19 @@ export default function Purchases() {
 
   // ============ COMPRAS ============
   const handleOpenPurchaseDialog = () => {
+    // Generar número de factura automático con formato FAC-YYYYMMDD-NNNN
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const autoInvoice = `FAC-${dateStr}-${String(nextInvoiceNumber).padStart(4, '0')}`;
+    
     setPurchaseForm({
       supplierId: '',
       supplierName: '',
-      invoiceNumber: '',
-      notes: '',
+      invoiceNumber: autoInvoice,
       items: []
     });
     setPurchasePendingIssues([]);
+    setSupplierPendingIssues([]);
     setPurchaseDialogOpen(true);
   };
 
@@ -795,7 +825,7 @@ export default function Purchases() {
         supplierName: purchaseForm.supplierName || null,
         warehouseId,
         invoiceNumber: purchaseForm.invoiceNumber || null,
-        notes: purchaseForm.notes || null,
+        notes: null,
         items: purchaseForm.items.map(item => ({
           productId: item.productId,
           productName: item.productName,
@@ -851,6 +881,7 @@ export default function Purchases() {
       setSuccess(`Compra registrada exitosamente. Stock actualizado.${pendingCount > 0 ? ` Se registraron ${pendingCount} pendiente(s).` : ''}`);
       setPurchaseDialogOpen(false);
       setPurchasePendingIssues([]);
+      setNextInvoiceNumber(prev => prev + 1); // Incrementar consecutivo
       loadPurchases();
       loadProducts();
       loadStats();
@@ -1134,11 +1165,17 @@ export default function Purchases() {
   // ============ RENDER ============
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ 
+        height: 'calc(100vh - 32px)', 
+        display: 'flex', 
+        flexDirection: 'column',
+        overflow: 'hidden',
+        p: 2
+      }}>
         {/* Header */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexShrink: 0 }}>
           <Box>
-            <Typography variant="h4" fontWeight="bold">
+            <Typography variant="h5" fontWeight="bold">
               📦 Compras y Proveedores
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -1148,6 +1185,7 @@ export default function Purchases() {
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
               variant="contained"
+              size="small"
               startIcon={<Add />}
               onClick={tabValue === 0 ? handleOpenPurchaseDialog : () => handleOpenSupplierDialog()}
               sx={{ borderRadius: 2 }}
@@ -1158,61 +1196,61 @@ export default function Purchases() {
         </Box>
 
         {/* Alerts */}
-        {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
-        {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
+        {error && <Alert severity="error" sx={{ mb: 1, flexShrink: 0 }} onClose={() => setError(null)}>{error}</Alert>}
+        {success && <Alert severity="success" sx={{ mb: 1, flexShrink: 0 }} onClose={() => setSuccess(null)}>{success}</Alert>}
 
-        {/* Stats Cards */}
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        {/* Stats Cards - Más compactas */}
+        <Grid container spacing={1.5} sx={{ mb: 2, flexShrink: 0 }}>
           <Grid item xs={6} md={3}>
             <Card sx={{ background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`, color: 'white' }}>
-              <CardContent>
+              <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box>
-                    <Typography variant="body2" sx={{ opacity: 0.9 }}>Compras Hoy</Typography>
-                    <Typography variant="h4" fontWeight="bold">${formatCOP(stats?.today.amount || 0)}</Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.9 }}>Compras Hoy</Typography>
+                    <Typography variant="h5" fontWeight="bold">${formatCOP(stats?.today.amount || 0)}</Typography>
                     <Typography variant="caption" sx={{ opacity: 0.8 }}>{stats?.today.count || 0} compras</Typography>
                   </Box>
-                  <ShoppingCart sx={{ fontSize: 50, opacity: 0.3 }} />
+                  <ShoppingCart sx={{ fontSize: 40, opacity: 0.3 }} />
                 </Box>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={6} md={3}>
             <Card sx={{ background: `linear-gradient(135deg, ${theme.palette.success.main} 0%, ${theme.palette.success.dark} 100%)`, color: 'white' }}>
-              <CardContent>
+              <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box>
-                    <Typography variant="body2" sx={{ opacity: 0.9 }}>Este Mes</Typography>
-                    <Typography variant="h4" fontWeight="bold">${formatCOP(stats?.month.amount || 0)}</Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.9 }}>Este Mes</Typography>
+                    <Typography variant="h5" fontWeight="bold">${formatCOP(stats?.month.amount || 0)}</Typography>
                     <Typography variant="caption" sx={{ opacity: 0.8 }}>{stats?.month.count || 0} compras</Typography>
                   </Box>
-                  <TrendingUp sx={{ fontSize: 50, opacity: 0.3 }} />
+                  <TrendingUp sx={{ fontSize: 40, opacity: 0.3 }} />
                 </Box>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={6} md={3}>
             <Card>
-              <CardContent>
+              <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box>
-                    <Typography variant="body2" color="text.secondary">Total Compras</Typography>
-                    <Typography variant="h4" fontWeight="bold">{stats?.total.count || 0}</Typography>
+                    <Typography variant="caption" color="text.secondary">Total Compras</Typography>
+                    <Typography variant="h5" fontWeight="bold">{stats?.total.count || 0}</Typography>
                   </Box>
-                  <Receipt sx={{ fontSize: 40, color: 'text.secondary' }} />
+                  <Receipt sx={{ fontSize: 35, color: 'text.secondary' }} />
                 </Box>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={6} md={3}>
             <Card>
-              <CardContent>
+              <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box>
-                    <Typography variant="body2" color="text.secondary">Proveedores</Typography>
-                    <Typography variant="h4" fontWeight="bold">{stats?.supplierCount || 0}</Typography>
+                    <Typography variant="caption" color="text.secondary">Proveedores</Typography>
+                    <Typography variant="h5" fontWeight="bold">{stats?.supplierCount || 0}</Typography>
                   </Box>
-                  <Business sx={{ fontSize: 40, color: 'text.secondary' }} />
+                  <Business sx={{ fontSize: 35, color: 'text.secondary' }} />
                 </Box>
               </CardContent>
             </Card>
@@ -1220,7 +1258,7 @@ export default function Purchases() {
         </Grid>
 
         {/* Tabs */}
-        <Paper sx={{ mb: 3 }}>
+        <Paper sx={{ mb: 2, flexShrink: 0 }}>
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
             <Tab label="Compras" icon={<ShoppingCart />} iconPosition="start" />
             <Tab label="Proveedores" icon={<Business />} iconPosition="start" />
@@ -1244,7 +1282,8 @@ export default function Purchases() {
           </Tabs>
         </Paper>
 
-        {/* Tab Content */}
+        {/* Tab Content - Con scroll */}
+        <Box sx={{ flexGrow: 1, overflow: 'hidden', minHeight: 0 }}>
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
             <CircularProgress />
@@ -1253,8 +1292,8 @@ export default function Purchases() {
           <>
             {/* ============ TAB COMPRAS ============ */}
             {tabValue === 0 && (
-              <Paper>
-                <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+              <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
                   <TextField
                     placeholder="Buscar por proveedor, factura o número..."
                     value={purchaseSearch}
@@ -1267,18 +1306,18 @@ export default function Purchases() {
                   />
                 </Box>
 
-                <TableContainer>
-                  <Table>
+                <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>
+                  <Table stickyHeader>
                     <TableHead>
-                      <TableRow sx={{ backgroundColor: 'grey.100' }}>
-                        <TableCell width={50}></TableCell>
-                        <TableCell><strong>N° COMPRA</strong></TableCell>
-                        <TableCell><strong>FECHA</strong></TableCell>
-                        <TableCell><strong>PROVEEDOR</strong></TableCell>
-                        <TableCell><strong>FACTURA</strong></TableCell>
-                        <TableCell align="center"><strong>PRODUCTOS</strong></TableCell>
-                        <TableCell align="right"><strong>TOTAL</strong></TableCell>
-                        <TableCell align="center"><strong>ACCIONES</strong></TableCell>
+                      <TableRow>
+                        <TableCell width={50} sx={{ bgcolor: 'grey.100' }}></TableCell>
+                        <TableCell sx={{ bgcolor: 'grey.100' }}><strong>N° COMPRA</strong></TableCell>
+                        <TableCell sx={{ bgcolor: 'grey.100' }}><strong>FECHA</strong></TableCell>
+                        <TableCell sx={{ bgcolor: 'grey.100' }}><strong>PROVEEDOR</strong></TableCell>
+                        <TableCell sx={{ bgcolor: 'grey.100' }}><strong>FACTURA</strong></TableCell>
+                        <TableCell align="center" sx={{ bgcolor: 'grey.100' }}><strong>PRODUCTOS</strong></TableCell>
+                        <TableCell align="right" sx={{ bgcolor: 'grey.100' }}><strong>TOTAL</strong></TableCell>
+                        <TableCell align="center" sx={{ bgcolor: 'grey.100' }}><strong>ACCIONES</strong></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1347,15 +1386,17 @@ export default function Purchases() {
                                     <Visibility />
                                   </IconButton>
                                 </Tooltip>
-                                <Tooltip title="Eliminar">
-                                  <IconButton 
-                                    size="small" 
-                                    color="error"
-                                    onClick={() => handleDeleteClick('purchase', purchase)}
-                                  >
-                                    <Delete />
-                                  </IconButton>
-                                </Tooltip>
+                                {isAdmin && (
+                                  <Tooltip title="Eliminar">
+                                    <IconButton 
+                                      size="small" 
+                                      color="error"
+                                      onClick={() => handleDeleteClick('purchase', purchase)}
+                                    >
+                                      <Delete />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
                               </TableCell>
                             </TableRow>
                             <TableRow>
@@ -1405,8 +1446,8 @@ export default function Purchases() {
 
             {/* ============ TAB PROVEEDORES ============ */}
             {tabValue === 1 && (
-              <Paper>
-                <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+              <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
                   <TextField
                     placeholder="Buscar por nombre, teléfono o NIT..."
                     value={supplierSearch}
@@ -1419,18 +1460,18 @@ export default function Purchases() {
                   />
                 </Box>
 
-                <TableContainer>
-                  <Table>
+                <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>
+                  <Table stickyHeader>
                     <TableHead>
-                      <TableRow sx={{ backgroundColor: 'grey.100' }}>
-                        <TableCell><strong>PROVEEDOR</strong></TableCell>
-                        <TableCell><strong>CONTACTO</strong></TableCell>
-                        <TableCell><strong>TELÉFONO</strong></TableCell>
-                        <TableCell><strong>NIT</strong></TableCell>
-                        <TableCell align="center"><strong>COMPRAS</strong></TableCell>
-                        <TableCell align="center"><strong>PENDIENTES</strong></TableCell>
-                        <TableCell align="center"><strong>ESTADO</strong></TableCell>
-                        <TableCell align="center"><strong>ACCIONES</strong></TableCell>
+                      <TableRow>
+                        <TableCell sx={{ bgcolor: 'grey.100' }}><strong>PROVEEDOR</strong></TableCell>
+                        <TableCell sx={{ bgcolor: 'grey.100' }}><strong>CONTACTO</strong></TableCell>
+                        <TableCell sx={{ bgcolor: 'grey.100' }}><strong>TELÉFONO</strong></TableCell>
+                        <TableCell sx={{ bgcolor: 'grey.100' }}><strong>NIT</strong></TableCell>
+                        <TableCell align="center" sx={{ bgcolor: 'grey.100' }}><strong>COMPRAS</strong></TableCell>
+                        <TableCell align="center" sx={{ bgcolor: 'grey.100' }}><strong>PENDIENTES</strong></TableCell>
+                        <TableCell align="center" sx={{ bgcolor: 'grey.100' }}><strong>ESTADO</strong></TableCell>
+                        <TableCell align="center" sx={{ bgcolor: 'grey.100' }}><strong>ACCIONES</strong></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1515,23 +1556,27 @@ export default function Purchases() {
                                   <Description />
                                 </IconButton>
                               </Tooltip>
-                              <Tooltip title="Editar">
-                                <IconButton 
-                                  size="small" 
-                                  onClick={() => handleOpenSupplierDialog(supplier)}
-                                >
-                                  <Edit />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Eliminar">
-                                <IconButton 
-                                  size="small" 
-                                  color="error"
-                                  onClick={() => handleDeleteClick('supplier', supplier)}
-                                >
-                                  <Delete />
-                                </IconButton>
-                              </Tooltip>
+                              {isAdmin && (
+                                <>
+                                  <Tooltip title="Editar">
+                                    <IconButton 
+                                      size="small" 
+                                      onClick={() => handleOpenSupplierDialog(supplier)}
+                                    >
+                                      <Edit />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Eliminar">
+                                    <IconButton 
+                                      size="small" 
+                                      color="error"
+                                      onClick={() => handleDeleteClick('supplier', supplier)}
+                                    >
+                                      <Delete />
+                                    </IconButton>
+                                  </Tooltip>
+                                </>
+                              )}
                             </TableCell>
                           </TableRow>
                         ))
@@ -1544,7 +1589,7 @@ export default function Purchases() {
 
             {/* ============ TAB PENDIENTES ============ */}
             {tabValue === 2 && (
-              <Paper>
+              <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 {pendingIssues.length === 0 ? (
                   <Box sx={{ textAlign: 'center', py: 6 }}>
                     <Description sx={{ fontSize: 64, color: 'success.main', opacity: 0.5, mb: 2 }} />
@@ -1556,16 +1601,16 @@ export default function Purchases() {
                     </Typography>
                   </Box>
                 ) : (
-                  <TableContainer>
-                    <Table>
+                  <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>
+                    <Table stickyHeader>
                       <TableHead>
-                        <TableRow sx={{ backgroundColor: 'error.light' }}>
-                          <TableCell><strong>PROVEEDOR</strong></TableCell>
-                          <TableCell><strong>FECHA Y HORA</strong></TableCell>
-                          <TableCell><strong>TELÉFONO</strong></TableCell>
-                          <TableCell><strong>DIRECCIÓN</strong></TableCell>
-                          <TableCell align="center"><strong>PENDIENTES</strong></TableCell>
-                          <TableCell align="center"><strong>DETALLES</strong></TableCell>
+                        <TableRow>
+                          <TableCell sx={{ bgcolor: 'error.light' }}><strong>PROVEEDOR</strong></TableCell>
+                          <TableCell sx={{ bgcolor: 'error.light' }}><strong>FECHA Y HORA</strong></TableCell>
+                          <TableCell sx={{ bgcolor: 'error.light' }}><strong>TELÉFONO</strong></TableCell>
+                          <TableCell sx={{ bgcolor: 'error.light' }}><strong>DIRECCIÓN</strong></TableCell>
+                          <TableCell align="center" sx={{ bgcolor: 'error.light' }}><strong>PENDIENTES</strong></TableCell>
+                          <TableCell align="center" sx={{ bgcolor: 'error.light' }}><strong>DETALLES</strong></TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -1649,6 +1694,7 @@ export default function Purchases() {
             )}
           </>
         )}
+        </Box>
 
         {/* ============ DIALOG PROVEEDOR ============ */}
         <Dialog open={supplierDialogOpen} onClose={() => setSupplierDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -1801,23 +1847,15 @@ export default function Purchases() {
                   </FormControl>
 
                   <TextField
-                    label="N° Factura Proveedor"
+                    label="N° Factura"
                     fullWidth
                     sx={{ mb: 2 }}
                     value={purchaseForm.invoiceNumber}
-                    onChange={(e) => setPurchaseForm(prev => ({ ...prev, invoiceNumber: e.target.value }))}
                     InputProps={{
+                      readOnly: true,
                       startAdornment: <InputAdornment position="start"><Receipt /></InputAdornment>
                     }}
-                  />
-
-                  <TextField
-                    label="Notas"
-                    fullWidth
-                    multiline
-                    rows={3}
-                    value={purchaseForm.notes}
-                    onChange={(e) => setPurchaseForm(prev => ({ ...prev, notes: e.target.value }))}
+                    helperText="Número generado automáticamente"
                   />
 
                   <Divider sx={{ my: 2 }} />

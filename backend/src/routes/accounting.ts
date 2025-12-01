@@ -37,8 +37,10 @@ export async function accountingRoutes(app: FastifyInstance) {
     const hasDateFilter = startDate || endDate;
 
     // Ventas - filtrar por tipo de precio si se especifica
-    // Las ventas normales no tienen priceType, solo los fiados pagados tienen saleId
-    const salesWhere: Prisma.SaleWhereInput = {};
+    // Excluir ventas con status 'returned' o 'cancelled'
+    const salesWhere: Prisma.SaleWhereInput = {
+      status: { notIn: ['returned', 'cancelled'] }
+    };
     if (hasDateFilter) {
       salesWhere.createdAt = dateFilter;
     }
@@ -118,10 +120,28 @@ export async function accountingRoutes(app: FastifyInstance) {
       _count: true
     });
 
+    // Devoluciones del periodo
+    const returnsWhere: Prisma.ProductReturnWhereInput = {};
+    if (hasDateFilter) {
+      returnsWhere.createdAt = dateFilter;
+    }
+    const returns = await app.prisma.productReturn.aggregate({
+      where: returnsWhere,
+      _sum: { total: true },
+      _count: true
+    });
+
     const purchasesTotal = Number(purchases._sum.total) || 0;
     const expensesTotal = Number(expenses._sum.amount) || 0;
+    const returnsTotal = Number(returns._sum.total) || 0;
     const grossProfit = salesTotal - salesCost;
-    const netProfit = grossProfit - expensesTotal;
+    
+    // Utilidad Neta CORRECTA: Ganancia Bruta - Gastos Operativos - Devoluciones
+    // Las compras de inventario NO son un gasto del P&L, son inversión en activo
+    const netProfit = grossProfit - expensesTotal - returnsTotal;
+    
+    // Total de egresos de caja (flujo de efectivo): Compras + Gastos + Devoluciones
+    const totalCashOut = purchasesTotal + expensesTotal + returnsTotal;
 
     return {
       period: {
@@ -155,9 +175,13 @@ export async function accountingRoutes(app: FastifyInstance) {
             count: e._count
           }))
         },
-        total: purchasesTotal + expensesTotal
+        returns: {
+          total: returnsTotal,
+          count: returns._count
+        },
+        total: totalCashOut // Total de egresos de caja
       },
-      netProfit,
+      netProfit, // Utilidad neta real (P&L)
       profitMargin: salesTotal > 0 ? ((grossProfit / salesTotal) * 100).toFixed(2) : '0'
     };
   });
@@ -362,10 +386,10 @@ export async function accountingRoutes(app: FastifyInstance) {
     };
   });
 
-  // Comparación Público vs San Alas
+  // Comparación Público vs San Alas vs Empleados
   app.get('/accounting/compare-price-types', {
     schema: {
-      summary: 'Comparar ventas Público vs San Alas',
+      summary: 'Comparar ventas por tipo de precio',
       tags: ['accounting']
     }
   }, async (request, reply) => {
@@ -383,7 +407,8 @@ export async function accountingRoutes(app: FastifyInstance) {
         createdAt: {
           gte: start,
           lte: end
-        }
+        },
+        status: { notIn: ['returned', 'cancelled'] } // Excluir devueltas y canceladas
       },
       include: {
         order: true,
@@ -395,10 +420,20 @@ export async function accountingRoutes(app: FastifyInstance) {
 
     const publico = { sales: 0, cost: 0, count: 0, profit: 0 };
     const sanAlas = { sales: 0, cost: 0, count: 0, profit: 0 };
+    const empleados = { sales: 0, cost: 0, count: 0, profit: 0 };
 
     for (const sale of sales) {
       const priceType = sale.priceType || 'publico';
-      const target = priceType === 'sanAlas' ? sanAlas : publico;
+      
+      // Seleccionar el target correcto según el priceType
+      let target;
+      if (priceType === 'sanAlas') {
+        target = sanAlas;
+      } else if (priceType === 'empleados') {
+        target = empleados;
+      } else {
+        target = publico;
+      }
       
       target.sales += Number(sale.total);
       target.count += 1;
@@ -410,6 +445,7 @@ export async function accountingRoutes(app: FastifyInstance) {
 
     publico.profit = publico.sales - publico.cost;
     sanAlas.profit = sanAlas.sales - sanAlas.cost;
+    empleados.profit = empleados.sales - empleados.cost;
 
     return {
       startDate: start.toISOString().split('T')[0],
@@ -422,11 +458,15 @@ export async function accountingRoutes(app: FastifyInstance) {
         ...sanAlas,
         margin: sanAlas.sales > 0 ? ((sanAlas.profit / sanAlas.sales) * 100).toFixed(2) : '0'
       },
+      empleados: {
+        ...empleados,
+        margin: empleados.sales > 0 ? ((empleados.profit / empleados.sales) * 100).toFixed(2) : '0'
+      },
       total: {
-        sales: publico.sales + sanAlas.sales,
-        cost: publico.cost + sanAlas.cost,
-        profit: publico.profit + sanAlas.profit,
-        count: publico.count + sanAlas.count
+        sales: publico.sales + sanAlas.sales + empleados.sales,
+        cost: publico.cost + sanAlas.cost + empleados.cost,
+        profit: publico.profit + sanAlas.profit + empleados.profit,
+        count: publico.count + sanAlas.count + empleados.count
       }
     };
   });

@@ -68,9 +68,10 @@ import {
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
-import { es } from 'date-fns/locale';
+import { es } from 'date-fns/locale/es';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -174,6 +175,12 @@ const BUSINESS_CONFIG = {
     color: '#10B981',
     gradient: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
   },
+  empleados: {
+    name: 'Empleados',
+    icon: PersonIcon,
+    color: '#F59E0B',
+    gradient: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
+  },
 };
 
 const PAYMENT_METHODS = [
@@ -184,14 +191,16 @@ const PAYMENT_METHODS = [
 
 export default function Expenses() {
   const theme = useTheme();
+  const { isAdmin } = useAuth();
   const [mainTab, setMainTab] = useState(0); // 0: Gastos, 1: Préstamos
   const [businessTab, setBusinessTab] = useState(0); // 0: Distribuidora, 1: San Alas
 
   // Expenses state
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [categories, setCategories] = useState<{ distribuidora: Category[]; sanAlas: Category[] }>({
+  const [categories, setCategories] = useState<{ distribuidora: Category[]; sanAlas: Category[]; empleados: Category[] }>({
     distribuidora: [],
     sanAlas: [],
+    empleados: [],
   });
   const [expenseStats, setExpenseStats] = useState<ExpenseStats | null>(null);
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
@@ -222,13 +231,13 @@ export default function Expenses() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const currentBusiness = businessTab === 0 ? 'distribuidora' : 'sanAlas';
+  const currentBusiness = businessTab === 0 ? 'distribuidora' : businessTab === 1 ? 'sanAlas' : 'empleados';
   const businessConfig = BUSINESS_CONFIG[currentBusiness as keyof typeof BUSINESS_CONFIG];
 
   // Fetch categories
   const fetchCategories = useCallback(async () => {
     try {
-      const res = await api.get<{ distribuidora: Category[]; sanAlas: Category[] }>('/expenses/categories');
+      const res = await api.get<{ distribuidora: Category[]; sanAlas: Category[]; empleados: Category[] }>('/expenses/categories');
       setCategories(res);
     } catch (err) {
       console.error('Error fetching categories:', err);
@@ -599,11 +608,11 @@ export default function Expenses() {
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2, height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Header */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexShrink: 0 }}>
           <Box>
-            <Typography variant="h4" fontWeight="bold">Finanzas</Typography>
+            <Typography variant="h5" fontWeight="bold">Finanzas</Typography>
             <Typography variant="body2" color="text.secondary">
               Gestión de gastos y préstamos
             </Typography>
@@ -616,13 +625,13 @@ export default function Expenses() {
         </Box>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+          <Alert severity="error" sx={{ mb: 1, flexShrink: 0 }} onClose={() => setError('')}>
             {error}
           </Alert>
         )}
 
         {/* Business Tabs */}
-        <Paper sx={{ mb: 3 }}>
+        <Paper sx={{ mb: 2, flexShrink: 0 }}>
           <Tabs
             value={businessTab}
             onChange={(_, v) => setBusinessTab(v)}
@@ -644,11 +653,17 @@ export default function Expenses() {
               iconPosition="start"
               sx={{ color: businessTab === 1 ? BUSINESS_CONFIG.sanAlas.color : 'inherit' }}
             />
+            <Tab
+              icon={<PersonIcon />}
+              label="Empleados"
+              iconPosition="start"
+              sx={{ color: businessTab === 2 ? BUSINESS_CONFIG.empleados.color : 'inherit' }}
+            />
           </Tabs>
         </Paper>
 
         {/* Main Tabs */}
-        <Paper sx={{ mb: 3 }}>
+        <Paper sx={{ mb: 2, flexShrink: 0 }}>
           <Tabs
             value={mainTab}
             onChange={(_, v) => setMainTab(v)}
@@ -667,11 +682,15 @@ export default function Expenses() {
           </Tabs>
         </Paper>
 
-        {loading && <LinearProgress sx={{ mb: 2 }} />}
+        {loading && <LinearProgress sx={{ mb: 1, flexShrink: 0 }} />}
 
         {/* Stats Cards */}
-        <StatsCards />
+        <Box sx={{ flexShrink: 0 }}>
+          <StatsCards />
+        </Box>
 
+        {/* Tab Content - Scrollable Area */}
+        <Box sx={{ flexGrow: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
         {/* Expenses Tab */}
         <TabPanel value={mainTab} index={0}>
           {/* Filters */}
@@ -724,15 +743,17 @@ export default function Expenses() {
                       ))}
                     </Select>
                   </FormControl>
-                  <Tooltip title="Gestionar Categorías">
-                    <IconButton
-                      color="primary"
-                      onClick={() => { setEditingCategory(null); setCategoryDialogOpen(true); }}
-                      sx={{ border: '1px solid', borderColor: 'primary.main' }}
-                    >
-                      <AddIcon />
-                    </IconButton>
-                  </Tooltip>
+                  {isAdmin && (
+                    <Tooltip title="Gestionar Categorías">
+                      <IconButton
+                        color="primary"
+                        onClick={() => { setEditingCategory(null); setCategoryDialogOpen(true); }}
+                        sx={{ border: '1px solid', borderColor: 'primary.main' }}
+                      >
+                        <AddIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Box>
               </Grid>
               <Grid item xs={12} sm={6} md={2}>
@@ -806,16 +827,20 @@ export default function Expenses() {
                           </Typography>
                         </TableCell>
                         <TableCell align="center">
-                          <Tooltip title="Editar">
-                            <IconButton size="small" onClick={() => { setEditingExpense(expense); setExpenseDialogOpen(true); }}>
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Eliminar">
-                            <IconButton size="small" color="error" onClick={() => handleDeleteExpense(expense.id)}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          {isAdmin && (
+                            <>
+                              <Tooltip title="Editar">
+                                <IconButton size="small" onClick={() => { setEditingExpense(expense); setExpenseDialogOpen(true); }}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Eliminar">
+                                <IconButton size="small" color="error" onClick={() => handleDeleteExpense(expense.id)}>
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -861,17 +886,19 @@ export default function Expenses() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} sm={4} md={3}>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={() => { setEditingLoan(null); setLoanDialogOpen(true); }}
-                  sx={{ background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)' }}
-                >
-                  Nuevo Préstamo
-                </Button>
-              </Grid>
+              {isAdmin && (
+                <Grid item xs={12} sm={4} md={3}>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => { setEditingLoan(null); setLoanDialogOpen(true); }}
+                    sx={{ background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)' }}
+                  >
+                    Nuevo Préstamo
+                  </Button>
+                </Grid>
+              )}
             </Grid>
           </Paper>
 
@@ -986,7 +1013,7 @@ export default function Expenses() {
                           )}
                         </Grid>
                       </Grid>
-                      {loan.status === 'ACTIVE' && (
+                      {loan.status === 'ACTIVE' && isAdmin && (
                         <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
                           <Button
                             variant="contained"
@@ -1040,6 +1067,8 @@ export default function Expenses() {
           loan={selectedLoan}
         />
 
+        </Box>
+
         {/* Category Dialog */}
         <CategoryDialog
           open={categoryDialogOpen}
@@ -1072,6 +1101,17 @@ function ExpenseDialog({
   business: string;
   categories: Category[];
 }) {
+  // Función para formatear número con separador de miles
+  const formatAmount = (value: string): string => {
+    const num = value.replace(/\D/g, '');
+    return num.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  };
+
+  // Función para parsear el número formateado a número real
+  const parseAmount = (value: string): string => {
+    return value.replace(/\./g, '');
+  };
+
   const [formData, setFormData] = useState({
     date: new Date(),
     category: '',
@@ -1093,7 +1133,7 @@ function ExpenseDialog({
         subcategory: expense.subcategory || '',
         supplierName: expense.supplierName || '',
         description: expense.description || '',
-        amount: expense.amount,
+        amount: formatAmount(expense.amount),
         paymentMethod: expense.paymentMethod || 'efectivo',
         invoiceNumber: expense.invoiceNumber || '',
         isRecurring: expense.isRecurring,
@@ -1118,6 +1158,7 @@ function ExpenseDialog({
   const handleSubmit = () => {
     onSave({
       ...formData,
+      amount: parseAmount(formData.amount), // Enviar sin formato
       date: format(formData.date, 'yyyy-MM-dd'),
       business,
     });
@@ -1185,16 +1226,16 @@ function ExpenseDialog({
                 fullWidth
                 size="small"
                 label="Monto *"
-                type="number"
                 value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, amount: formatAmount(e.target.value) })}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">$</InputAdornment>,
                 }}
+                placeholder="0"
                 required
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12}>
               <FormControl fullWidth size="small">
                 <InputLabel>Método de Pago</InputLabel>
                 <Select
@@ -1207,15 +1248,6 @@ function ExpenseDialog({
                   ))}
                 </Select>
               </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                size="small"
-                label="# Factura"
-                value={formData.invoiceNumber}
-                onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
-              />
             </Grid>
             <Grid item xs={12}>
               <TextField
@@ -1230,6 +1262,12 @@ function ExpenseDialog({
             </Grid>
           </Grid>
         </LocalizationProvider>
+        
+        {!expense && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            El número de factura se generará automáticamente al guardar.
+          </Alert>
+        )}
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 2 }}>
         <Button onClick={onClose}>Cancelar</Button>

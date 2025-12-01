@@ -48,6 +48,7 @@ import {
   Event as EventIcon,
 } from '@mui/icons-material';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 interface OrderItem {
   id: string;
@@ -65,7 +66,7 @@ interface Order {
   customerPhone?: string;
   total: number;
   priceType: string;
-  status: 'PENDING' | 'PAID' | 'CANCELLED';
+  status: 'PENDING' | 'PAID' | 'CANCELLED' | 'RETURNED';
   notes?: string;
   dueDate?: string;
   createdAt: string;
@@ -78,6 +79,7 @@ interface Stats {
   pending: { count: number; total: number };
   paid: { count: number; total: number };
   cancelled: { count: number };
+  returned: { count: number; total: number };
   totalPending: number;
 }
 
@@ -97,6 +99,7 @@ const formatDate = (dateStr: string): string => {
 };
 
 export default function Fiados() {
+  const { isAdmin } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -157,10 +160,11 @@ export default function Fiados() {
     try {
       await api.post(`/orders/${payDialog.id}/pay`, { paymentMethod });
       setPayDialog(null);
+      setSnackbar({ open: true, message: '✅ Pago registrado correctamente', severity: 'success' });
       fetchOrders();
       fetchStats();
     } catch (error: any) {
-      alert(error.response?.data?.error || 'Error al procesar pago');
+      setSnackbar({ open: true, message: error.message || 'Error al procesar pago', severity: 'error' });
     }
   };
 
@@ -169,10 +173,11 @@ export default function Fiados() {
     try {
       await api.post(`/orders/${cancelDialog.id}/cancel`);
       setCancelDialog(null);
+      setSnackbar({ open: true, message: '✅ Fiado cancelado, stock devuelto', severity: 'success' });
       fetchOrders();
       fetchStats();
     } catch (error: any) {
-      alert(error.response?.data?.error || 'Error al cancelar');
+      setSnackbar({ open: true, message: error.message || 'Error al cancelar', severity: 'error' });
     }
   };
 
@@ -181,10 +186,11 @@ export default function Fiados() {
     try {
       await api.delete(`/orders/${deleteDialog.id}`);
       setDeleteDialog(null);
+      setSnackbar({ open: true, message: '✅ Fiado eliminado correctamente', severity: 'success' });
       fetchOrders();
       fetchStats();
     } catch (error: any) {
-      alert(error.response?.data?.error || 'Error al eliminar');
+      setSnackbar({ open: true, message: error.message || 'Error al eliminar', severity: 'error' });
     }
   };
 
@@ -196,6 +202,8 @@ export default function Fiados() {
         return <Chip label="Pagado" color="success" size="small" />;
       case 'CANCELLED':
         return <Chip label="Cancelado" color="error" size="small" />;
+      case 'RETURNED':
+        return <Chip label="🔄 Devuelto" color="info" size="small" sx={{ bgcolor: '#E3F2FD' }} />;
       default:
         return <Chip label={status} size="small" />;
     }
@@ -294,6 +302,7 @@ export default function Fiados() {
             <ToggleButton value="PENDING">Pendientes</ToggleButton>
             <ToggleButton value="PAID">Pagados</ToggleButton>
             <ToggleButton value="CANCELLED">Cancelados</ToggleButton>
+            <ToggleButton value="RETURNED">Devueltos</ToggleButton>
             <ToggleButton value="ALL">Todos</ToggleButton>
           </ToggleButtonGroup>
         </Box>
@@ -403,32 +412,24 @@ export default function Fiados() {
                             >
                               <PaymentIcon fontSize="small" />
                             </IconButton>
-                            <IconButton
-                              color="warning"
-                              size="small"
-                              onClick={() => setCancelDialog(order)}
-                              title="Cancelar fiado"
-                            >
-                              <CancelIcon fontSize="small" />
-                            </IconButton>
+                            {isAdmin && (
+                              <IconButton
+                                color="warning"
+                                size="small"
+                                onClick={() => setCancelDialog(order)}
+                                title="Cancelar fiado (devolver stock)"
+                              >
+                                <CancelIcon fontSize="small" />
+                              </IconButton>
+                            )}
                           </>
                         )}
-                        {order.status === 'CANCELLED' && (
+                        {isAdmin && (
                           <IconButton
                             color="error"
                             size="small"
                             onClick={() => setDeleteDialog(order)}
-                            title="Eliminar"
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        )}
-                        {order.status === 'PAID' && (
-                          <IconButton
-                            color="error"
-                            size="small"
-                            onClick={() => setDeleteDialog(order)}
-                            title="Eliminar"
+                            title="Eliminar fiado"
                           >
                             <DeleteIcon fontSize="small" />
                           </IconButton>
@@ -610,22 +611,43 @@ export default function Fiados() {
 
       {/* Delete Dialog */}
       <Dialog open={!!deleteDialog} onClose={() => setDeleteDialog(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Eliminar Registro</DialogTitle>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'error.main' }}>
+          <DeleteIcon />
+          Eliminar Fiado
+        </DialogTitle>
         <DialogContent>
           {deleteDialog && (
             <Box sx={{ pt: 1 }}>
               <Alert severity="error" sx={{ mb: 2 }}>
-                Esta acción eliminará permanentemente el registro del fiado cancelado.
+                {deleteDialog.status === 'PENDING' 
+                  ? '⚠️ Este fiado está PENDIENTE. Al eliminarlo se perderá el registro pero NO se devolverá el stock. ¿Estás seguro?'
+                  : deleteDialog.status === 'CANCELLED'
+                  ? 'Se eliminará permanentemente el registro del fiado cancelado.'
+                  : 'Se eliminará permanentemente el registro del fiado pagado.'
+                }
               </Alert>
-              <Typography>
-                Cliente: <strong>{deleteDialog.customerName}</strong>
-              </Typography>
+              <Box sx={{ p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                <Typography variant="body2">
+                  <strong>Cliente:</strong> {deleteDialog.customerName}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Total:</strong> ${formatNumber(deleteDialog.total)}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Estado:</strong> {deleteDialog.status === 'PENDING' ? 'Pendiente' : deleteDialog.status === 'PAID' ? 'Pagado' : 'Cancelado'}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Fecha:</strong> {formatDate(deleteDialog.createdAt)}
+                </Typography>
+              </Box>
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialog(null)}>No, volver</Button>
-          <Button variant="contained" color="error" onClick={handleDelete}>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setDeleteDialog(null)} variant="outlined">
+            Cancelar
+          </Button>
+          <Button variant="contained" color="error" onClick={handleDelete} startIcon={<DeleteIcon />}>
             Sí, eliminar
           </Button>
         </DialogActions>

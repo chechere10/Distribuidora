@@ -66,6 +66,19 @@ export async function cashRoutes(app: FastifyInstance) {
       return reply.code(400).send({ message: 'No hay caja abierta' });
     }
     
+    // Verificar que el usuario sea el que abrió la caja o sea administrador
+    if (session.openedByUserId && session.openedByUserId !== user.id && user.role !== 'admin') {
+      // Buscar el nombre del usuario que abrió la caja
+      const openedByUser = await app.prisma.user.findUnique({ 
+        where: { id: session.openedByUserId },
+        select: { name: true, username: true }
+      });
+      const openedByName = openedByUser?.name || openedByUser?.username || 'otro usuario';
+      return reply.code(403).send({ 
+        message: `Solo ${openedByName} o un administrador puede cerrar esta caja` 
+      });
+    }
+    
     // Calcular resumen del periodo
     const sessionStart = session.openedAt;
     const sessionEnd = new Date();
@@ -146,16 +159,18 @@ export async function cashRoutes(app: FastifyInstance) {
     });
     const totalPurchases = purchases.reduce((sum, p) => sum + Number(p.total), 0);
     
-    // Gastos del periodo
+    // Gastos del periodo (usando createdAt para capturar gastos registrados durante la sesión)
     const expenses = await app.prisma.expense.findMany({
       where: {
-        date: {
+        createdAt: {
           gte: sessionStart,
           lte: sessionEnd
         }
       }
     });
-    const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
+    // Solo gastos en efectivo afectan la caja
+    const expensesCash = expenses.filter(e => !e.paymentMethod || e.paymentMethod === 'efectivo');
+    const totalExpenses = expensesCash.reduce((sum, e) => sum + Number(e.amount), 0);
     
     // Calcular efectivo esperado
     const openingAmount = Number(session.openingAmount);
@@ -340,9 +355,9 @@ export async function cashRoutes(app: FastifyInstance) {
     // Gastos del periodo
     const expenses = await app.prisma.expense.findMany({
       where: {
-        date: { gte: sessionStart, lte: sessionEnd }
+        createdAt: { gte: sessionStart, lte: sessionEnd }
       },
-      orderBy: { date: 'desc' }
+      orderBy: { createdAt: 'desc' }
     });
     
     return {
@@ -401,6 +416,180 @@ export async function cashRoutes(app: FastifyInstance) {
           createdAt: m.createdAt
         }))
       }
+    };
+  });
+
+  // Preview del cierre de caja (para mostrar resumen antes de cerrar)
+  app.get('/cash/preview', {
+    schema: {
+      summary: 'Preview del cierre de caja actual',
+      tags: ['cash'],
+      querystring: { type: 'object', required: ['warehouseId'], properties: { warehouseId: { type: 'string' } } },
+    },
+  }, async (request, reply) => {
+    const warehouseId = (request.query as any)?.warehouseId as string;
+    if (!warehouseId) return reply.code(400).send({ message: 'warehouseId requerido' });
+    
+    // Buscar sesión de caja abierta
+    const session = await app.prisma.cashSession.findFirst({ 
+      where: { warehouseId, closedAt: null }, 
+      orderBy: { openedAt: 'desc' } 
+    });
+    
+    if (!session) {
+      return reply.code(400).send({ message: 'No hay caja abierta' });
+    }
+    
+    const sessionStart = session.openedAt;
+    const sessionEnd = new Date();
+    
+    // Obtener ventas del periodo
+    const sales = await app.prisma.sale.findMany({
+      where: {
+        createdAt: { gte: sessionStart, lte: sessionEnd },
+        warehouseId
+      },
+      include: { items: { include: { product: true } } }
+    });
+    
+    // Calcular totales
+    let totalSales = 0;
+    let totalCash = 0;
+    let totalTransfer = 0;
+    
+    for (const sale of sales) {
+      const saleTotal = Number(sale.total);
+      totalSales += saleTotal;
+      const method = sale.paymentMethod || 'efectivo';
+      if (method === 'transferencia' || method === 'transfer') {
+        totalTransfer += saleTotal;
+      } else {
+        totalCash += saleTotal;
+      }
+    }
+    
+    // Fiados generados
+    const fiados = await app.prisma.order.findMany({
+      where: {
+        createdAt: { gte: sessionStart, lte: sessionEnd },
+        warehouseId,
+        status: 'PENDING'
+      }
+    });
+    const totalFiados = fiados.reduce((sum, f) => sum + Number(f.total), 0);
+    
+    // Fiados cobrados
+    const fiadosCobrados = await app.prisma.order.findMany({
+      where: {
+        paidAt: { gte: sessionStart, lte: sessionEnd },
+        warehouseId,
+        status: 'PAID'
+      }
+    });
+    const totalFiadosCobrados = fiadosCobrados.reduce((sum, f) => sum + Number(f.total), 0);
+    
+    // Gastos del periodo (usando createdAt para incluir gastos creados durante la sesión)
+    // Usamos createdAt porque la fecha del gasto puede ser anterior pero se registró durante esta sesión
+    const expenses = await app.prisma.expense.findMany({
+      where: { 
+        createdAt: { gte: sessionStart, lte: sessionEnd }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
+    
+    // Gastos solo en efectivo
+    const expensesCash = expenses.filter(e => !e.paymentMethod || e.paymentMethod === 'efectivo');
+    const totalExpensesCash = expensesCash.reduce((sum, e) => sum + Number(e.amount), 0);
+    
+    // Compras a proveedores del periodo (RECEIVED = pagadas y recibidas)
+    const purchases = await app.prisma.purchase.findMany({
+      where: {
+        createdAt: { gte: sessionStart, lte: sessionEnd },
+        warehouseId,
+        status: 'RECEIVED' // Solo compras ya recibidas/pagadas
+      },
+      include: { supplier: { select: { name: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+    const totalPurchasesCash = purchases.reduce((sum, p) => sum + Number(p.total), 0);
+    
+    // Préstamos desembolsados en el periodo (asumimos efectivo)
+    const loans = await app.prisma.loan.findMany({
+      where: {
+        disbursementDate: { gte: sessionStart, lte: sessionEnd },
+        status: { not: 'CANCELLED' }
+      },
+      include: { employee: { select: { name: true } } },
+      orderBy: { disbursementDate: 'desc' }
+    });
+    const totalLoansCash = loans.reduce((sum, l) => sum + Number(l.amount), 0);
+    
+    // Calcular total de egresos en efectivo (gastos + compras + préstamos)
+    const totalEgresos = totalExpensesCash + totalPurchasesCash + totalLoansCash;
+    
+    // Calcular efectivo esperado
+    const openingAmount = Number(session.openingAmount);
+    const expectedCash = openingAmount + totalCash + totalFiadosCobrados - totalEgresos;
+    
+    // Preparar detalle de egresos para mostrar
+    const egresosDetalle = [
+      // Gastos en efectivo
+      ...expensesCash.map(e => ({
+        tipo: 'GASTO',
+        descripcion: e.description || e.category,
+        beneficiario: e.supplierName || '-',
+        monto: Number(e.amount),
+        fecha: e.createdAt,
+        categoria: e.category,
+        factura: e.invoiceNumber
+      })),
+      // Compras a proveedores
+      ...purchases.map(p => ({
+        tipo: 'COMPRA',
+        descripcion: `Compra #${p.purchaseNumber}`,
+        beneficiario: p.supplier?.name || p.supplierName || 'Proveedor',
+        monto: Number(p.total),
+        fecha: p.createdAt,
+        categoria: 'Compra Mercancía',
+        factura: p.invoiceNumber
+      })),
+      // Préstamos
+      ...loans.map(l => ({
+        tipo: 'PRESTAMO',
+        descripcion: `Préstamo #${l.loanNumber}`,
+        beneficiario: l.employee?.name || l.borrowerName,
+        monto: Number(l.amount),
+        fecha: l.disbursementDate,
+        categoria: 'Préstamos',
+        factura: null
+      }))
+    ].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+    
+    return {
+      sessionId: session.id,
+      openedAt: session.openedAt,
+      openingAmount,
+      summary: {
+        totalSales,
+        salesCount: sales.length,
+        totalCash,
+        totalTransfer,
+        totalFiados,
+        fiadosCount: fiados.length,
+        totalFiadosCobrados,
+        fiadosCobradosCount: fiadosCobrados.length,
+        // Egresos detallados
+        totalExpenses: totalExpensesCash,
+        expensesCount: expensesCash.length,
+        totalPurchasesCash,
+        purchasesCount: purchases.length,
+        totalLoansCash,
+        loansCount: loans.length,
+        totalEgresos,
+        expectedCash
+      },
+      egresos: egresosDetalle
     };
   });
 

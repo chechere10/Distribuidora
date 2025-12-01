@@ -82,6 +82,7 @@ interface Sale {
   warehouseId: string;
   paymentMethod?: string;
   priceType?: string;
+  status?: string; // completed, returned, cancelled
   cashReceived?: number | null;
   change?: number | null;
   warehouse?: {
@@ -128,7 +129,7 @@ export default function SalesHistory() {
   useEffect(() => {
     loadSales();
     loadTodayStats();
-  }, [page, startDate, endDate]);
+  }, [page, startDate, endDate, searchTerm]);
 
   const loadSales = async () => {
     setLoading(true);
@@ -138,6 +139,9 @@ export default function SalesHistory() {
       const params = new URLSearchParams();
       params.append('limit', String(limit));
       params.append('offset', String((page - 1) * limit));
+      if (searchTerm.trim()) {
+        params.append('search', searchTerm.trim());
+      }
 
       const headers = {
         'Authorization': `Bearer ${getToken()}`,
@@ -259,18 +263,18 @@ export default function SalesHistory() {
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2, height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Header */}
-        <Typography variant="h4" fontWeight="bold" gutterBottom>
+        <Typography variant="h5" fontWeight="bold" gutterBottom sx={{ flexShrink: 0 }}>
           📋 Historial de Ventas
         </Typography>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
+          <Alert severity="error" sx={{ mb: 1, flexShrink: 0 }}>{error}</Alert>
         )}
 
         {/* Stats Cards */}
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid container spacing={2} sx={{ mb: 2, flexShrink: 0 }}>
           <Grid item xs={12} sm={6} md={3}>
             <Card>
               <CardContent>
@@ -325,14 +329,20 @@ export default function SalesHistory() {
         </Grid>
 
         {/* Filters */}
-        <Paper sx={{ p: 2, mb: 3 }}>
+        <Paper sx={{ p: 2, mb: 2, flexShrink: 0 }}>
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
-                placeholder="Buscar por producto..."
+                placeholder="Buscar por producto o N° de factura..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setPage(1);
+                    loadSales();
+                  }
+                }}
                 size="small"
                 InputProps={{
                   startAdornment: (
@@ -377,7 +387,8 @@ export default function SalesHistory() {
           </Grid>
         </Paper>
 
-        {/* Sales Table */}
+        {/* Sales Table - Scrollable */}
+        <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
             <CircularProgress />
@@ -392,6 +403,7 @@ export default function SalesHistory() {
                     <TableCell><strong>N° VENTA</strong></TableCell>
                     <TableCell><strong>OPERADOR</strong></TableCell>
                     <TableCell align="center"><strong>TIPO</strong></TableCell>
+                    <TableCell align="center"><strong>ESTADO</strong></TableCell>
                     <TableCell align="center"><strong>PAGO</strong></TableCell>
                     <TableCell align="center"><strong>PRODUCTOS</strong></TableCell>
                     <TableCell align="right"><strong>TOTAL</strong></TableCell>
@@ -401,7 +413,7 @@ export default function SalesHistory() {
                 <TableBody>
                   {sales.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">
                           No hay ventas registradas
                         </Typography>
@@ -412,15 +424,22 @@ export default function SalesHistory() {
                       <TableRow 
                         key={sale.id} 
                         hover
+                        sx={sale.status === 'returned' || sale.status === 'cancelled' ? { 
+                          opacity: 0.7, 
+                          bgcolor: 'error.50',
+                          textDecoration: 'line-through'
+                        } : {}}
                       >
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <CalendarToday sx={{ fontSize: 14, color: 'text.secondary' }} />
-                            <Typography variant="body2">{formatDate(sale.createdAt)}</Typography>
+                            <Typography variant="body2" sx={sale.status === 'returned' ? { textDecoration: 'line-through' } : {}}>
+                              {formatDate(sale.createdAt)}
+                            </Typography>
                           </Box>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'primary.main' }}>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'bold', color: sale.status === 'returned' ? 'error.main' : 'primary.main', textDecoration: sale.status === 'returned' ? 'line-through' : 'none' }}>
                             {sale.saleNumber ? String(sale.saleNumber).padStart(6, '0') : sale.id.slice(0, 8)}
                           </Typography>
                         </TableCell>
@@ -431,12 +450,39 @@ export default function SalesHistory() {
                         </TableCell>
                         <TableCell align="center">
                           <Chip 
-                            label={sale.priceType === 'sanAlas' ? '🍗 San Alas' : '🏪 Público'} 
+                            label={sale.priceType === 'sanAlas' ? '🍗 San Alas' : sale.priceType === 'empleados' ? '👷 Empleados' : '🏪 Público'} 
                             size="small" 
-                            color={sale.priceType === 'sanAlas' ? 'success' : 'default'}
+                            color={sale.priceType === 'sanAlas' ? 'success' : sale.priceType === 'empleados' ? 'secondary' : 'default'}
                             variant="filled"
                             sx={{ fontWeight: 600 }}
                           />
+                        </TableCell>
+                        <TableCell align="center">
+                          {sale.status === 'returned' ? (
+                            <Chip 
+                              label="🔄 Devuelta" 
+                              size="small" 
+                              color="error"
+                              variant="filled"
+                              sx={{ fontWeight: 600 }}
+                            />
+                          ) : sale.status === 'cancelled' ? (
+                            <Chip 
+                              label="❌ Cancelada" 
+                              size="small" 
+                              color="error"
+                              variant="outlined"
+                              sx={{ fontWeight: 600 }}
+                            />
+                          ) : (
+                            <Chip 
+                              label="✅ Completada" 
+                              size="small" 
+                              color="success"
+                              variant="outlined"
+                              sx={{ fontWeight: 600 }}
+                            />
+                          )}
                         </TableCell>
                         <TableCell align="center">
                           <Chip 
@@ -455,16 +501,19 @@ export default function SalesHistory() {
                           />
                         </TableCell>
                         <TableCell align="right">
-                          <Typography variant="body2" fontWeight="bold" color="success.main">
+                          <Typography variant="body2" fontWeight="bold" color={sale.status === 'returned' ? 'error.main' : 'success.main'} sx={sale.status === 'returned' ? { textDecoration: 'line-through' } : {}}>
                             ${formatCOP(sale.total)}
                           </Typography>
                         </TableCell>
                         <TableCell align="center">
-                          <Tooltip title="Ver detalles">
+                          <Tooltip title="Ver recibo">
                             <IconButton
                               color="primary"
                               size="small"
-                              onClick={() => setDetailDialog(sale)}
+                              onClick={() => {
+                                setSelectedSale(sale);
+                                setShowReceiptDialog(true);
+                              }}
                             >
                               <Visibility fontSize="small" />
                             </IconButton>
@@ -474,6 +523,7 @@ export default function SalesHistory() {
                               color="error"
                               size="small"
                               onClick={(e) => handleDeleteClick(sale, e)}
+                              disabled={sale.status === 'returned'}
                             >
                               <Delete fontSize="small" />
                             </IconButton>
@@ -499,6 +549,7 @@ export default function SalesHistory() {
             )}
           </Paper>
         )}
+        </Box>
 
         {/* Detail Dialog */}
         <Dialog open={!!detailDialog} onClose={() => setDetailDialog(null)} maxWidth="sm" fullWidth>
@@ -525,9 +576,9 @@ export default function SalesHistory() {
                     <Grid item xs={6}>
                       <Typography variant="caption" color="text.secondary">Tipo de Precio</Typography>
                       <Chip 
-                        label={detailDialog.priceType === 'sanAlas' ? '🍗 San Alas' : '🏪 Público'} 
+                        label={detailDialog.priceType === 'sanAlas' ? '🍗 San Alas' : detailDialog.priceType === 'empleados' ? '👷 Empleados' : '🏪 Público'} 
                         size="small" 
-                        color={detailDialog.priceType === 'sanAlas' ? 'success' : 'default'}
+                        color={detailDialog.priceType === 'sanAlas' ? 'success' : detailDialog.priceType === 'empleados' ? 'secondary' : 'default'}
                         sx={{ fontWeight: 600 }}
                       />
                     </Grid>

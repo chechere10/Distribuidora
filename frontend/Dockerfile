@@ -8,6 +8,7 @@ RUN npm install --no-audit --no-fund
 COPY tsconfig.json ./tsconfig.json
 COPY vite.config.ts ./vite.config.ts
 COPY index.html ./index.html
+COPY public ./public
 COPY src ./src
 RUN npm run build
 
