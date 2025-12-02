@@ -566,6 +566,13 @@ export async function productRoutes(app: FastifyInstance) {
           barcodeImageScale: body.barcodeImageScale ?? undefined,
           categoryId: body.categoryId,
           defaultPrice: body.defaultPrice ? (body.defaultPrice as any) : undefined,
+          // Guardar precios San Alas y Empleados - permitir string vacío para eliminar
+          priceSanAlas: body.priceSanAlas === '' || body.priceSanAlas === null 
+            ? null 
+            : (body.priceSanAlas ? (body.priceSanAlas as any) : undefined),
+          priceEmpleados: body.priceEmpleados === '' || body.priceEmpleados === null 
+            ? null 
+            : (body.priceEmpleados ? (body.priceEmpleados as any) : undefined),
           cost: body.cost ? (body.cost as any) : undefined,
           imageUrl: body.imageUrl,
           baseUnit: body.baseUnit,

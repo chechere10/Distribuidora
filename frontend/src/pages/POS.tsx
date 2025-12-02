@@ -270,6 +270,53 @@ export default function POS() {
     }
   }, [selectedCategory, products]);
 
+  // Actualizar precios del carrito cuando cambia el tipo de precio
+  useEffect(() => {
+    if (cartItems.length === 0) return;
+    
+    setCartItems(prevItems => 
+      prevItems.map(item => {
+        let newUnitPrice: number;
+        
+        if (item.presentation) {
+          // Precio de presentación según tipo
+          switch (priceType) {
+            case 'sanAlas':
+              newUnitPrice = Number(item.presentation.priceSanAlas || item.presentation.price);
+              break;
+            case 'empleados':
+              newUnitPrice = Number(item.presentation.priceEmpleados || item.presentation.price);
+              break;
+            default:
+              newUnitPrice = Number(item.presentation.price);
+          }
+        } else {
+          // Precio base del producto según tipo
+          switch (priceType) {
+            case 'sanAlas':
+              newUnitPrice = item.product.priceSanAlas 
+                ? Number(item.product.priceSanAlas) 
+                : Number(item.product.defaultPrice);
+              break;
+            case 'empleados':
+              newUnitPrice = item.product.priceEmpleados 
+                ? Number(item.product.priceEmpleados) 
+                : Number(item.product.defaultPrice);
+              break;
+            default:
+              newUnitPrice = Number(item.product.defaultPrice);
+          }
+        }
+        
+        return {
+          ...item,
+          unitPrice: newUnitPrice,
+          priceType,
+        };
+      })
+    );
+  }, [priceType]);
+
   const parseNumber = (value: string): number => {
     return Number(value.replace(/\./g, '')) || 0;
   };
